@@ -134,12 +134,16 @@ curl -s -X POST http://127.0.0.1:8000/mcp \
 
 ## Release Process
 
+See [`docs/publishing.md`](docs/publishing.md) for PyPI setup (one-time Trusted Publishing configuration).
+
 ```bash
-git checkout main && git pull
+git checkout master && git pull
 uv version --bump minor   # or: major, patch
 git add pyproject.toml uv.lock
-git commit -m "chore: Bump version to X.Y.Z"
+git commit -m "chore: bump version to X.Y.Z"
 git push
+git tag vX.Y.Z
+git push origin vX.Y.Z   # triggers publish.yml → PyPI
 ```
 
 ## Commit Messages

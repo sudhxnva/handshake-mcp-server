@@ -1,6 +1,8 @@
 """Tests for scraping/link_metadata.py reference extraction."""
 
 from handshake_mcp_server.scraping.link_metadata import (
+    RawReference,
+    Reference,
     classify_link,
     dedupe_references,
     normalize_reference,
@@ -57,7 +59,7 @@ def test_classify_relative_path_job():
 
 
 def test_normalize_reference_skips_nav():
-    raw = {
+    raw: RawReference = {
         "href": "https://app.joinhandshake.com/stu/jobs/123",
         "text": "Software Engineer",
         "in_nav": True,
@@ -67,7 +69,7 @@ def test_normalize_reference_skips_nav():
 
 
 def test_normalize_reference_skips_footer():
-    raw = {
+    raw: RawReference = {
         "href": "https://app.joinhandshake.com/stu/jobs/123",
         "text": "Software Engineer",
         "in_footer": True,
@@ -77,7 +79,7 @@ def test_normalize_reference_skips_footer():
 
 
 def test_dedupe_references_removes_duplicates():
-    refs = [
+    refs: list[Reference] = [
         {"kind": "job", "url": "/stu/jobs/1", "text": "Job A"},
         {"kind": "job", "url": "/stu/jobs/1", "text": "Job A duplicate"},
         {"kind": "job", "url": "/stu/jobs/2", "text": "Job B"},
@@ -89,6 +91,8 @@ def test_dedupe_references_removes_duplicates():
 
 
 def test_dedupe_references_respects_cap():
-    refs = [{"kind": "job", "url": f"/stu/jobs/{i}", "text": f"Job {i}"} for i in range(20)]
+    refs: list[Reference] = [
+        {"kind": "job", "url": f"/stu/jobs/{i}", "text": f"Job {i}"} for i in range(20)
+    ]
     result = dedupe_references(refs, cap=5)
     assert len(result) == 5

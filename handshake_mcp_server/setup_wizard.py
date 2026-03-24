@@ -151,6 +151,10 @@ async def _run_docker_path() -> None:
 async def _run_local_path() -> None:
     """Local setup: browser login, print MCP command."""
     # Deferred import — keeps setup_wizard importable without triggering patchright
+    from pathlib import Path
+
+    from patchright.async_api import async_playwright
+
     from handshake_mcp_server.browser_manager import (
         DEFAULT_PROFILE_DIR,
         close_browser,
@@ -159,6 +163,18 @@ async def _run_local_path() -> None:
     )
     from handshake_mcp_server.core.auth import wait_for_manual_login
     from handshake_mcp_server.scraping.fields import BASE_URL
+
+    # Check Chromium is installed before attempting to open a browser.
+    async with async_playwright() as p:
+        exe_path = Path(p.chromium.executable_path)
+    if not exe_path.exists():
+        patchright_bin = Path(sys.executable).parent / "patchright"
+        console.print(
+            f"\n  [red]✗[/red]  Chromium is not installed.\n\n"
+            f"     Run this first:\n"
+            f"       [bold cyan]{patchright_bin} install chromium[/bold cyan]\n"
+        )
+        raise SystemExit(1)
 
     skip_login = False
 

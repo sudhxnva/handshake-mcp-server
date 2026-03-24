@@ -263,7 +263,9 @@ def _docker_clean_and_exit() -> None:
     # Stop and remove any containers still holding the volume before deleting it.
     containers = subprocess.run(
         ["docker", "ps", "-a", "-q", "--filter", "volume=handshake-profile"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout.strip()
     if containers:
         subprocess.run(["docker", "rm", "-f"] + containers.splitlines(), check=False)
@@ -325,6 +327,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Handshake MCP Server — scrape Handshake via browser automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Subcommands (positional, before any flags):\n"
+            "  setup         Interactive wizard: Docker or Local path, login, prints MCP config\n"
+            "  docker        Exec into Docker container (MCP stdio entrypoint for IDEs)\n"
+            "  docker-clean  Remove handshake-mcp-server image and handshake-profile volume\n"
+        ),
     )
 
     parser.add_argument(

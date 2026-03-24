@@ -5,6 +5,17 @@ description = "MCP server for scraping Handshake (joinhandshake.com) — student
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"
+authors = [{ name = "Sudhanva Manjunath", email = "sudhanva.m@icloud.com" }]
+keywords = ["mcp", "handshake", "browser-automation", "scraping", "playwright"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+]
 dependencies = [
     "fastmcp>=3.0.0",
     "patchright>=1.40.0",
@@ -16,6 +27,11 @@ dependencies = [
 
 [project.scripts]
 handshake-mcp-server = "handshake_mcp_server.cli_main:main"
+
+[project.urls]
+Homepage = "https://github.com/sudhxnva/handshake-mcp-server"
+Repository = "https://github.com/sudhxnva/handshake-mcp-server"
+"Bug Tracker" = "https://github.com/sudhxnva/handshake-mcp-server/issues"
 
 [dependency-groups]
 dev = [
