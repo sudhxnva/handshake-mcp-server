@@ -61,7 +61,11 @@ class BrowserManager:
         try:
             self._playwright = await async_playwright().start()
 
-            Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
+            profile_dir = Path(self.user_data_dir)
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            # Remove stale Chromium singleton lock files left by killed containers/processes.
+            for lock in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+                (profile_dir / lock).unlink(missing_ok=True)
 
             context_options: dict[str, Any] = {
                 "headless": self.headless,
