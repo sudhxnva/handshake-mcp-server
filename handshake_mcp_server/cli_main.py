@@ -250,6 +250,22 @@ def _status_and_exit(headless: bool) -> None:
     sys.exit(0)
 
 
+def _docker_clean_and_exit() -> None:
+    """Remove the Docker image and profile volume, then exit."""
+    import subprocess
+
+    _configure_logging("INFO")
+
+    print("Removing Docker image (handshake-mcp-server)...")
+    subprocess.run(["docker", "rmi", "-f", "handshake-mcp-server"], check=False)
+
+    print("Removing Docker volume (handshake-profile)...")
+    subprocess.run(["docker", "volume", "rm", "-f", "handshake-profile"], check=False)
+
+    print("Done.")
+    sys.exit(0)
+
+
 def _docker_and_exit() -> None:
     """Replace current process with docker run using stdio transport.
 
@@ -379,10 +395,12 @@ def main() -> None:
     """Main entry point for the Handshake MCP Server CLI."""
     # Handle subcommands before argparse to keep existing flags intact.
     # Read-only check — do not mutate sys.argv.
-    if len(sys.argv) > 1 and sys.argv[1] in ("setup", "docker"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("setup", "docker", "docker-clean"):
         subcommand = sys.argv[1]
         if subcommand == "docker":
             _docker_and_exit()
+        elif subcommand == "docker-clean":
+            _docker_clean_and_exit()
         else:
             _setup_and_exit()
         return  # unreachable (both functions call sys.exit or os.execvp), but clear intent
