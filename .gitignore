@@ -36,3 +36,6 @@ htmlcov/
 
 # Git worktrees
 .worktrees/
+
+# AI workflow docs (specs, plans)
+docs/superpowers/
