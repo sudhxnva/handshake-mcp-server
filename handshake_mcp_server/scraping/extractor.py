@@ -1,23 +1,26 @@
 """Core extraction engine for Handshake using innerText instead of DOM selectors."""
 
 import asyncio
-from dataclasses import dataclass
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote_plus
 
-from patchright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from patchright.async_api import Page
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from handshake_mcp_server.core.auth import detect_auth_barrier, detect_auth_barrier_quick
 from handshake_mcp_server.core.exceptions import (
     AuthenticationError,
     HandshakeScraperException,
+    RateLimitError,
 )
 from handshake_mcp_server.core.utils import (
     detect_rate_limit,
     handle_modal_close,
     scroll_to_bottom,
+    wait_for_cf_challenge,
 )
 from handshake_mcp_server.scraping.link_metadata import (
     Reference,
@@ -36,7 +39,9 @@ _NAV_DELAY = 2.0
 _RATE_LIMIT_RETRY_DELAY = 5.0
 
 # Returned as section text when Handshake rate-limits the page
-_RATE_LIMITED_MSG = "[Rate limited] Handshake blocked this section. Try again later or request fewer sections."
+_RATE_LIMITED_MSG = (
+    "[Rate limited] Handshake blocked this section. Try again later or request fewer sections."
+)
 
 # Handshake shows 25 results per page
 _PAGE_SIZE = 25
@@ -67,7 +72,17 @@ _NOISE_MARKERS: list[re.Pattern[str]] = [
     # Cookie consent banner
     re.compile(r"^(?:We use cookies|Accept Cookies|Cookie Settings)\n", re.MULTILINE),
     # Bottom nav bar (mobile-style)
-    re.compile(r"^(?:Home|Jobs|Events|Messages|Profile)\n+(?:Home|Jobs|Events|Messages|Profile)", re.MULTILINE),
+    re.compile(
+        r"^(?:Home|Jobs|Events|Messages|Profile)\n+(?:Home|Jobs|Events|Messages|Profile)",
+        re.MULTILINE,
+    ),
+    # Cloudflare bot challenge page — Patchright resolves these but as a fallback,
+    # strip if the challenge text somehow ends up in the extracted content.
+    re.compile(
+        r"(?:Performing security verification|Please wait while we verify"
+        r"|Just a moment|Checking your browser)",
+        re.IGNORECASE,
+    ),
 ]
 
 _NOISE_LINES: list[re.Pattern[str]] = [
@@ -127,8 +142,7 @@ class HandshakeExtractor:
 
         logger.warning("Authentication barrier detected on %s: %s", url, barrier)
         message = (
-            "Handshake requires re-authentication. "
-            "Run with --login and complete the sign-in flow."
+            "Handshake requires re-authentication. Run with --login and complete the sign-in flow."
         )
         if navigation_error is not None:
             raise AuthenticationError(message) from navigation_error
@@ -146,6 +160,16 @@ class HandshakeExtractor:
         except Exception as exc:
             await self._raise_if_auth_barrier(url, navigation_error=exc)
             raise
+
+        # Let Patchright resolve any Cloudflare bot challenge before we read content.
+        # CF challenges fire after domcontentloaded and resolve in-page via JS.
+        cf_resolved = await wait_for_cf_challenge(self._page)
+        if not cf_resolved and "cf_challenge" in self._page.url:
+            raise RateLimitError(
+                "Cloudflare challenge did not resolve. The page may be temporarily blocked. "
+                "Try again in a few seconds.",
+                suggested_wait_time=10,
+            )
 
         barrier = await detect_auth_barrier_quick(self._page)
         if barrier:
@@ -227,9 +251,7 @@ class HandshakeExtractor:
 
         truncated = _truncate_noise(raw)
         if not truncated and raw.strip():
-            logger.warning(
-                "Page %s returned only Handshake chrome (likely rate-limited)", url
-            )
+            logger.warning("Page %s returned only Handshake chrome (likely rate-limited)", url)
             return ExtractedSection(text=_RATE_LIMITED_MSG, references=[])
 
         cleaned = _filter_noise_lines(truncated)
@@ -288,16 +310,14 @@ class HandshakeExtractor:
             result["section_errors"] = section_errors
         return result
 
-    async def scrape_employer(
-        self, employer_id: str, requested: set[str]
-    ) -> dict[str, Any]:
+    async def scrape_employer(self, employer_id: str, requested: set[str]) -> dict[str, Any]:
         """Scrape an employer profile with configurable sections.
 
         Returns:
             {url, sections: {name: text}}
         """
         requested = requested | {"overview"}
-        base_url = f"{BASE_URL}/stu/employers/{employer_id}"
+        base_url = f"{BASE_URL}/e/{employer_id}"
         sections: dict[str, str] = {}
         references: dict[str, list[Reference]] = {}
         section_errors: dict[str, dict[str, Any]] = {}
@@ -346,7 +366,7 @@ class HandshakeExtractor:
         Returns:
             {url, sections: {name: text}}
         """
-        url = f"{BASE_URL}/stu/jobs/{job_id}"
+        url = f"{BASE_URL}/jobs/{job_id}"
         extracted = await self.extract_page(url, section_name="job_posting")
 
         sections: dict[str, str] = {}
@@ -402,11 +422,11 @@ class HandshakeExtractor:
         """Extract unique job IDs from job card links on the current page."""
         return await self._page.evaluate(
             """() => {
-                const links = document.querySelectorAll('a[href*="/stu/jobs/"]');
+                const links = document.querySelectorAll('a[href*="/jobs/"]');
                 const seen = new Set();
                 const ids = [];
                 for (const a of links) {
-                    const match = a.href.match(/\\/stu\\/jobs\\/(\\d+)/);
+                    const match = a.href.match(/\\/jobs\\/(\\d+)/);
                     if (match && !seen.has(match[1])) {
                         seen.add(match[1]);
                         ids.push(match[1]);
@@ -420,11 +440,11 @@ class HandshakeExtractor:
         """Extract unique employer IDs from employer card links on the current page."""
         return await self._page.evaluate(
             """() => {
-                const links = document.querySelectorAll('a[href*="/stu/employers/"]');
+                const links = document.querySelectorAll('a[href*="/e/"]');
                 const seen = new Set();
                 const ids = [];
                 for (const a of links) {
-                    const match = a.href.match(/\\/stu\\/employers\\/(\\d+)/);
+                    const match = a.href.match(/\\/e\\/(\\d+)(?:\\/|\\?|$)/);
                     if (match && !seen.has(match[1])) {
                         seen.add(match[1]);
                         ids.push(match[1]);
@@ -475,7 +495,7 @@ class HandshakeExtractor:
         if sort_by:
             mapped = _SORT_BY_MAP.get(sort_by.strip(), sort_by)
             params += f"&sort_direction={quote_plus(mapped)}"
-        return f"{BASE_URL}/stu/jobs?{params}"
+        return f"{BASE_URL}/job-search?{params}"
 
     async def search_jobs(
         self,
@@ -565,15 +585,11 @@ class HandshakeExtractor:
 
         result: dict[str, Any] = {
             "url": base_url,
-            "sections": {"search_results": "\n---\n".join(page_texts)}
-            if page_texts
-            else {},
+            "sections": {"search_results": "\n---\n".join(page_texts)} if page_texts else {},
             "job_ids": all_job_ids,
         }
         if page_references:
-            result["references"] = {
-                "search_results": dedupe_references(page_references, cap=15)
-            }
+            result["references"] = {"search_results": dedupe_references(page_references, cap=15)}
         if section_errors:
             result["section_errors"] = section_errors
         return result
@@ -588,7 +604,7 @@ class HandshakeExtractor:
         Returns:
             {url, sections: {search_results: text}, employer_ids: [str]}
         """
-        base_url = f"{BASE_URL}/stu/employers?query={quote_plus(keywords)}"
+        base_url = f"{BASE_URL}/employer-search?query={quote_plus(keywords)}&per_page={_PAGE_SIZE}"
 
         all_employer_ids: list[str] = []
         seen_ids: set[str] = set()
@@ -600,11 +616,7 @@ class HandshakeExtractor:
             if page_num > 1:
                 await asyncio.sleep(_NAV_DELAY)
 
-            url = (
-                base_url
-                if page_num == 1
-                else f"{base_url}&page={page_num}"
-            )
+            url = f"{base_url}&page={page_num}"
 
             try:
                 extracted = await self._extract_search_page(url, "search_results")
@@ -640,15 +652,11 @@ class HandshakeExtractor:
 
         result: dict[str, Any] = {
             "url": base_url,
-            "sections": {"search_results": "\n---\n".join(page_texts)}
-            if page_texts
-            else {},
+            "sections": {"search_results": "\n---\n".join(page_texts)} if page_texts else {},
             "employer_ids": all_employer_ids,
         }
         if page_references:
-            result["references"] = {
-                "search_results": dedupe_references(page_references, cap=15)
-            }
+            result["references"] = {"search_results": dedupe_references(page_references, cap=15)}
         if section_errors:
             result["section_errors"] = section_errors
         return result
@@ -663,7 +671,9 @@ class HandshakeExtractor:
         Returns:
             {url, sections: {search_results: text}, event_ids: [str]}
         """
-        base_url = f"{BASE_URL}/stu/events?query={quote_plus(keywords)}"
+        # Handshake events search does not support URL-based text query params.
+        # Navigate to the events page and extract what's listed.
+        base_url = f"{BASE_URL}/stu/events"
 
         all_event_ids: list[str] = []
         seen_ids: set[str] = set()
@@ -671,15 +681,11 @@ class HandshakeExtractor:
         page_references: list[Reference] = []
         section_errors: dict[str, dict[str, Any]] = {}
 
-        for page_num in range(1, max_pages + 1):
+        for page_num in range(1, min(max_pages, 1) + 1):
             if page_num > 1:
                 await asyncio.sleep(_NAV_DELAY)
 
-            url = (
-                base_url
-                if page_num == 1
-                else f"{base_url}&page={page_num}"
-            )
+            url = base_url
 
             try:
                 extracted = await self._extract_search_page(url, "search_results")
@@ -715,15 +721,11 @@ class HandshakeExtractor:
 
         result: dict[str, Any] = {
             "url": base_url,
-            "sections": {"search_results": "\n---\n".join(page_texts)}
-            if page_texts
-            else {},
+            "sections": {"search_results": "\n---\n".join(page_texts)} if page_texts else {},
             "event_ids": all_event_ids,
         }
         if page_references:
-            result["references"] = {
-                "search_results": dedupe_references(page_references, cap=15)
-            }
+            result["references"] = {"search_results": dedupe_references(page_references, cap=15)}
         if section_errors:
             result["section_errors"] = section_errors
         return result

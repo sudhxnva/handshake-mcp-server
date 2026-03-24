@@ -3,7 +3,8 @@
 import asyncio
 import logging
 
-from patchright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from patchright.async_api import Page
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .exceptions import RateLimitError
 
@@ -35,9 +36,7 @@ async def detect_rate_limit(page: Page) -> None:
 
     # Check for CAPTCHA
     try:
-        captcha = await page.locator(
-            'iframe[title*="captcha" i], iframe[src*="captcha" i]'
-        ).count()
+        captcha = await page.locator('iframe[title*="captcha" i], iframe[src*="captcha" i]').count()
         if captcha > 0:
             raise RateLimitError(
                 "CAPTCHA challenge detected. Manual intervention required.",
@@ -79,9 +78,81 @@ async def detect_rate_limit(page: Page) -> None:
         pass
 
 
-async def scroll_to_bottom(
-    page: Page, pause_time: float = 1.0, max_scrolls: int = 10
-) -> None:
+_CF_CHALLENGE_PHRASES = (
+    "Performing security verification",
+    "Please wait while we verify",
+    "Just a moment",
+    "Checking your browser",
+)
+
+
+async def wait_for_cf_challenge(page: Page, timeout: float = 60000) -> bool:
+    """Wait for a Cloudflare bot challenge to resolve, if one is present.
+
+    Patchright bypasses CF challenges automatically but needs a moment to
+    execute the challenge JS. The challenge renders asynchronously after
+    domcontentloaded, so we must wait for body content to appear before
+    we can know whether a challenge is in progress.
+
+    Handshake also uses a URL-based CF trigger (?cf_challenge=1). When
+    present, CF resolves by redirecting to the same URL without the param,
+    so we also watch for URL changes as a resolution signal.
+
+    This function is a no-op when no challenge is detected.
+    """
+    current_url = page.url
+
+    # Step 1: Check for Handshake's URL-based CF trigger (?cf_challenge=1).
+    url_has_cf_param = "cf_challenge" in current_url
+
+    if not url_has_cf_param:
+        # Step 1b: Wait briefly for any body text to appear so the CF challenge
+        # JS has time to render its page content (or confirm the real page loaded).
+        try:
+            await page.wait_for_function(
+                "() => (document.body?.innerText || '').trim().length > 5",
+                timeout=3000,
+            )
+        except PlaywrightTimeoutError:
+            return True  # Page still blank — nothing to detect yet
+
+        # Step 2: Check if this is a CF challenge page by body text.
+        try:
+            body_text = await page.evaluate("() => document.body?.innerText || ''")
+        except Exception:
+            return True
+        if not isinstance(body_text, str) or not any(
+            phrase in body_text for phrase in _CF_CHALLENGE_PHRASES
+        ):
+            return True  # Real page content — no challenge
+
+    # Step 3: Challenge detected. Wait for Patchright to solve it.
+    # Resolution is signalled by EITHER:
+    # - URL no longer contains "cf_challenge" (URL-based trigger resolved), OR
+    # - Body text is no longer a CF challenge page (body-text trigger resolved)
+    logger.debug("Cloudflare challenge detected on %s, waiting for resolution...", current_url)
+    phrases_js = str(list(_CF_CHALLENGE_PHRASES))
+    try:
+        await page.wait_for_function(
+            f"""() => {{
+                const url = window.location.href;
+                const urlResolved = !url.includes('cf_challenge');
+                const text = document.body?.innerText || '';
+                const bodyResolved = !{phrases_js}.some(p => text.includes(p)) && text.trim().length > 50;
+                return urlResolved || bodyResolved;
+            }}""",
+            timeout=timeout,
+        )
+        logger.debug("Cloudflare challenge resolved, now on %s", page.url)
+        return True
+    except PlaywrightTimeoutError:
+        logger.warning(
+            "Cloudflare challenge did not resolve within %.0fs on %s", timeout / 1000, page.url
+        )
+        return False
+
+
+async def scroll_to_bottom(page: Page, pause_time: float = 1.0, max_scrolls: int = 10) -> None:
     """Scroll to the bottom of the page to trigger lazy loading.
 
     Args:

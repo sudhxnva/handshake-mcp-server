@@ -4,7 +4,8 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 
-from patchright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from patchright.async_api import Page
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .exceptions import AuthenticationError
 
@@ -19,15 +20,6 @@ _AUTH_BLOCKER_URL_PATTERNS = (
     "/saml/sign_in",
 )
 
-# URL path fragments that indicate the user is in the authenticated student portal
-_AUTHENTICATED_URL_PATTERNS = (
-    "/stu/",
-    "/edu/",
-    "/emp/",
-    "/dashboard",
-    "/users/",
-)
-
 # Title patterns that indicate a login page
 _LOGIN_TITLE_PATTERNS = (
     "sign in",
@@ -39,35 +31,59 @@ _LOGIN_TITLE_PATTERNS = (
 async def is_logged_in(page: Page) -> bool:
     """Check if currently logged in to Handshake.
 
-    Uses a two-tier strategy:
-    1. Fail-fast on auth barrier URLs
-    2. URL-based check for authenticated-only pages
+    Strategy:
+    1. Fail-fast on known auth barrier URLs (login page, sign-in routes)
+    2. Fail-fast if the page title indicates a login page
+    3. If neither barrier is present AND the page has body content → logged in
+
+    This is intentionally permissive: we check for the *absence* of auth
+    barriers rather than a specific allowlist of post-login URLs, because
+    Handshake's post-login redirect can vary (e.g. /home, /stu, /dashboard).
     """
     try:
         current_url = page.url
 
-        # Step 1: Fail-fast on auth blockers
-        if _is_auth_blocker_url(current_url):
+        # Step 1: Must be on the Handshake app domain.
+        # This prevents false positives from SSO redirect pages (e.g. fedauth.colorado.edu),
+        # Cloudflare challenge pages, or any other intermediate domains.
+        parsed_host = urlparse(current_url).netloc
+        if parsed_host and "app.joinhandshake.com" not in parsed_host:
+            logger.debug("is_logged_in: not on Handshake domain: %s", current_url)
             return False
 
-        # Step 2: Check if we're in the authenticated portal
-        if any(pattern in current_url for pattern in _AUTHENTICATED_URL_PATTERNS):
-            # Require some real page content to avoid false positives
-            body_text = await page.evaluate("() => document.body?.innerText || ''")
-            if not isinstance(body_text, str):
-                return False
-            return bool(body_text.strip())
+        # Step 2: Fail-fast on auth blocker URLs
+        if _is_auth_blocker_url(current_url):
+            logger.debug("is_logged_in: auth blocker URL: %s", current_url)
+            return False
 
-        # Step 3: Check page title as fallback
+        # Step 3: Fail-fast on login page titles
         try:
             title = (await page.title()).strip().lower()
         except Exception:
             title = ""
 
         if any(pattern in title for pattern in _LOGIN_TITLE_PATTERNS):
+            logger.debug("is_logged_in: login title detected: %r", title)
             return False
 
-        return False  # Unknown page state — treat as not logged in
+        # Step 4: Check for ajs_user_id cookie — Handshake sets this on every
+        # authenticated page via analytics.js; it's readable via JS (not HttpOnly).
+        try:
+            cookie_str = await page.evaluate("() => document.cookie")
+            if isinstance(cookie_str, str) and "ajs_user_id=" in cookie_str:
+                logger.debug("is_logged_in: ajs_user_id cookie present at %s", current_url)
+                return True
+        except Exception:
+            pass
+
+        # Step 5: Require real page content (guards against blank/loading pages)
+        body_text = await page.evaluate("() => document.body?.innerText || ''")
+        if not isinstance(body_text, str) or not body_text.strip():
+            logger.debug("is_logged_in: no body content on %s", current_url)
+            return False
+
+        logger.debug("is_logged_in: logged in at %s", current_url)
+        return True
 
     except PlaywrightTimeoutError:
         logger.warning(
@@ -140,24 +156,41 @@ def _is_auth_blocker_url(url: str) -> bool:
 async def wait_for_manual_login(page: Page, timeout: int = 300000) -> None:
     """Wait for user to manually complete login.
 
+    Polls the page URL every 500 ms. Login is considered complete when the
+    browser is on app.joinhandshake.com at any path that is not a known auth
+    barrier (login page, SAML callback, etc.).
+
+    URL-only detection avoids:
+    - React SPA hydration races (body text empty at domcontentloaded)
+    - Patchright wait_for_url blocking on load-state after URL match
+    - False positives from the university SSO domain
+
     Args:
         page: Patchright page object
         timeout: Timeout in milliseconds (default: 5 minutes)
 
     Raises:
-        AuthenticationError: If timeout or login not completed
+        AuthenticationError: If timeout expires before login completes
     """
     logger.info(
-        "Please complete the login process manually in the browser. "
-        "Waiting up to 5 minutes..."
+        "Please complete the login process manually in the browser. Waiting up to 5 minutes..."
     )
 
     loop = asyncio.get_running_loop()
     start_time = loop.time()
 
     while True:
-        if await is_logged_in(page):
-            logger.info("Manual login completed successfully")
+        current_url = page.url
+        logger.debug("wait_for_manual_login: current URL = %s", current_url)
+
+        if (
+            "joinhandshake.com" in current_url
+            and not _is_auth_blocker_url(current_url)
+            and "/login" not in current_url
+            and "saml" not in current_url.lower()
+            and "sign_in" not in current_url
+        ):
+            logger.info("Manual login completed at: %s", current_url)
             return
 
         elapsed = (loop.time() - start_time) * 1000
@@ -166,4 +199,4 @@ async def wait_for_manual_login(page: Page, timeout: int = 300000) -> None:
                 "Manual login timeout. Please try again and complete login faster."
             )
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)

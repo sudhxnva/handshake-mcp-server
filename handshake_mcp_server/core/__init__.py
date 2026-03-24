@@ -16,7 +16,7 @@ from .exceptions import (
     RateLimitError,
     ScrapingError,
 )
-from .utils import detect_rate_limit, handle_modal_close, scroll_to_bottom
+from .utils import detect_rate_limit, handle_modal_close, scroll_to_bottom, wait_for_cf_challenge
 
 __all__ = [
     "BrowserManager",
@@ -34,4 +34,5 @@ __all__ = [
     "detect_rate_limit",
     "handle_modal_close",
     "scroll_to_bottom",
+    "wait_for_cf_challenge",
 ]
