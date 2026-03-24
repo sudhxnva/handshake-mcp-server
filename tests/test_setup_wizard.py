@@ -155,7 +155,7 @@ async def test_local_path_skips_login_when_profile_exists_and_user_declines():
         patch("questionary.confirm") as mock_confirm,
         patch("handshake_mcp_server.setup_wizard._print_mcp_command") as mock_print,
     ):
-        mock_confirm.return_value.ask.return_value = False  # user declines re-login
+        mock_confirm.return_value.ask_async = AsyncMock(return_value=False)  # user declines re-login
         await _run_local_path()
 
     mock_print.assert_called_once_with("local")
@@ -177,7 +177,7 @@ async def test_wizard_calls_docker_path_when_docker_selected():
             "handshake_mcp_server.setup_wizard._run_local_path", new_callable=AsyncMock
         ) as mock_local,
     ):
-        mock_select.return_value.ask.return_value = "docker"
+        mock_select.return_value.ask_async = AsyncMock(return_value="docker")
         await run_setup_wizard()
 
     mock_docker.assert_awaited_once()
@@ -197,7 +197,7 @@ async def test_wizard_calls_local_path_when_local_selected():
             "handshake_mcp_server.setup_wizard._run_local_path", new_callable=AsyncMock
         ) as mock_local,
     ):
-        mock_select.return_value.ask.return_value = "local"
+        mock_select.return_value.ask_async = AsyncMock(return_value="local")
         await run_setup_wizard()
 
     mock_local.assert_awaited_once()
@@ -212,7 +212,7 @@ async def test_wizard_exits_cleanly_on_ctrl_c():
         patch("questionary.select") as mock_select,
         pytest.raises(SystemExit) as exc_info,
     ):
-        mock_select.return_value.ask.return_value = None  # questionary returns None on Ctrl+C
+        mock_select.return_value.ask_async = AsyncMock(return_value=None)  # questionary returns None on Ctrl+C
         await run_setup_wizard()
 
     assert exc_info.value.code == 0

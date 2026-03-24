@@ -164,9 +164,9 @@ async def _run_local_path() -> None:
 
     if profile_exists():
         console.print("  [green]✓[/green]  Existing profile found\n")
-        relogin = questionary.confirm(
+        relogin = await questionary.confirm(
             "Already logged in — re-run login anyway?", default=False
-        ).ask()
+        ).ask_async()
         if not relogin:
             skip_login = True
 
@@ -210,13 +210,13 @@ async def run_setup_wizard() -> None:
     )
     console.print()
 
-    mode = questionary.select(
+    mode = await questionary.select(
         "How do you want to run the server?",
         choices=[
             questionary.Choice("Docker  (recommended)", value="docker"),
             questionary.Choice("Local", value="local"),
         ],
-    ).ask()
+    ).ask_async()
 
     if mode is None:
         raise SystemExit(0)
