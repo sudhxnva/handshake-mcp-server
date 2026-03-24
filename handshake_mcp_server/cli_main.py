@@ -249,6 +249,42 @@ def _status_and_exit(headless: bool) -> None:
     sys.exit(0)
 
 
+def _docker_and_exit() -> None:
+    """Replace current process with docker run using stdio transport.
+
+    This is the MCP server entry point for Docker-based setups.
+    The IDE calls: uvx handshake-scraper-mcp docker
+    Which runs this function, which exec's into the container.
+    """
+    import os
+
+    os.execvp(
+        "docker",
+        [
+            "docker", "run", "--rm", "-i",
+            "-v", "handshake-profile:/home/pwuser/.handshake-mcp",
+            "handshake-mcp-server",
+            "--transport", "stdio",
+            "--virtual-display",
+        ],
+    )
+
+
+async def _run_setup_wizard_stub() -> None:
+    """Placeholder coroutine — replaced in Task 8."""
+    pass
+
+
+def _setup_and_exit() -> None:
+    """Run the interactive setup wizard and exit.
+
+    Always calls sys.exit() — callers should not place logic after this call.
+    """
+    _configure_logging("INFO")
+    asyncio.run(_run_setup_wizard_stub())
+    sys.exit(0)
+
+
 def ensure_authentication_ready() -> None:
     """Verify authentication profile exists before starting the server."""
     try:
@@ -338,6 +374,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Main entry point for the Handshake MCP Server CLI."""
+    # Handle subcommands before argparse to keep existing flags intact.
+    # Read-only check — do not mutate sys.argv.
+    if len(sys.argv) > 1 and sys.argv[1] in ("setup", "docker"):
+        subcommand = sys.argv[1]
+        if subcommand == "docker":
+            _docker_and_exit()
+        else:
+            _setup_and_exit()
+        return  # unreachable (both functions call sys.exit or os.execvp), but clear intent
+
     parser = _build_parser()
 
     args = parser.parse_args()
