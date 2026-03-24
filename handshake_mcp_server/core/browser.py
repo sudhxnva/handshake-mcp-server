@@ -51,9 +51,7 @@ class BrowserManager:
         await self.start()
         return self
 
-    async def __aexit__(
-        self, exc_type: object, exc_val: object, exc_tb: object
-    ) -> None:
+    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         await self.close()
 
     async def start(self) -> None:
@@ -125,9 +123,7 @@ class BrowserManager:
     @property
     def page(self) -> Page:
         if not self._page:
-            raise RuntimeError(
-                "Browser not started. Use async context manager or call start()."
-            )
+            raise RuntimeError("Browser not started. Use async context manager or call start().")
         return self._page
 
     @property

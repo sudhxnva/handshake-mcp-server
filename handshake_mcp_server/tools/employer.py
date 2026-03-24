@@ -37,8 +37,8 @@ def register_employer_tools(mcp: FastMCP) -> None:
             ctx: FastMCP context for progress reporting
             sections: Comma-separated list of sections to scrape.
                 The overview is always included.
-                Available sections: overview, jobs, reviews
-                Examples: "jobs", "overview,reviews", "jobs,reviews"
+                Available sections: overview, jobs, posts
+                Examples: "jobs", "overview,posts", "jobs,posts"
                 Default (None) scrapes only the overview.
 
         Returns:
@@ -48,9 +48,7 @@ def register_employer_tools(mcp: FastMCP) -> None:
         try:
             requested, unknown = parse_employer_sections(sections)
 
-            logger.info(
-                "Scraping employer profile: %s (sections=%s)", employer_id, sections
-            )
+            logger.info("Scraping employer profile: %s (sections=%s)", employer_id, sections)
 
             await ctx.report_progress(
                 progress=0, total=100, message="Starting employer profile scrape"
@@ -96,9 +94,7 @@ def register_employer_tools(mcp: FastMCP) -> None:
         try:
             logger.info("Searching employers: keywords='%s'", keywords)
 
-            await ctx.report_progress(
-                progress=0, total=100, message="Starting employer search"
-            )
+            await ctx.report_progress(progress=0, total=100, message="Starting employer search")
 
             result = await extractor.search_employers(keywords, max_pages=max_pages)
 

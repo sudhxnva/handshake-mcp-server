@@ -1,7 +1,8 @@
 """FastMCP server implementation for Handshake integration."""
 
 import logging
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.server.lifespan import lifespan

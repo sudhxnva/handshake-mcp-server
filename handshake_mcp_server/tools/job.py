@@ -43,9 +43,7 @@ def register_job_tools(mcp: FastMCP) -> None:
         try:
             logger.info("Scraping job: %s", job_id)
 
-            await ctx.report_progress(
-                progress=0, total=100, message="Starting job scrape"
-            )
+            await ctx.report_progress(progress=0, total=100, message="Starting job scrape")
 
             result = await extractor.scrape_job(job_id)
 
@@ -98,9 +96,7 @@ def register_job_tools(mcp: FastMCP) -> None:
                 max_pages,
             )
 
-            await ctx.report_progress(
-                progress=0, total=100, message="Starting job search"
-            )
+            await ctx.report_progress(progress=0, total=100, message="Starting job search")
 
             result = await extractor.search_jobs(
                 keywords,

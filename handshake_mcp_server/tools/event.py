@@ -42,9 +42,7 @@ def register_event_tools(mcp: FastMCP) -> None:
         try:
             logger.info("Scraping event: %s", event_id)
 
-            await ctx.report_progress(
-                progress=0, total=100, message="Starting event scrape"
-            )
+            await ctx.report_progress(progress=0, total=100, message="Starting event scrape")
 
             result = await extractor.scrape_event(event_id)
 
@@ -85,9 +83,7 @@ def register_event_tools(mcp: FastMCP) -> None:
         try:
             logger.info("Searching events: keywords='%s'", keywords)
 
-            await ctx.report_progress(
-                progress=0, total=100, message="Starting event search"
-            )
+            await ctx.report_progress(progress=0, total=100, message="Starting event search")
 
             result = await extractor.search_events(keywords, max_pages=max_pages)
 

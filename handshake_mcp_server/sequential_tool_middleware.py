@@ -7,7 +7,6 @@ import logging
 import time
 
 import mcp.types as mt
-
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.tool import ToolResult
 

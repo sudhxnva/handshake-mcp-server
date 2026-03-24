@@ -44,9 +44,7 @@ def raise_tool_error(exception: Exception, context: str = "") -> NoReturn:
 
     elif isinstance(exception, SessionExpiredError):
         logger.warning("Session expired%s: %s", ctx, exception)
-        raise ToolError(
-            "Session expired. Run with --login to re-authenticate."
-        ) from exception
+        raise ToolError("Session expired. Run with --login to re-authenticate.") from exception
 
     elif isinstance(exception, AuthenticationError):
         logger.warning("Authentication failed%s: %s", ctx, exception)
@@ -63,9 +61,7 @@ def raise_tool_error(exception: Exception, context: str = "") -> NoReturn:
 
     elif isinstance(exception, ProfileNotFoundError):
         logger.warning("Profile not found%s: %s", ctx, exception)
-        raise ToolError(
-            "Profile not found. Check that the ID is correct."
-        ) from exception
+        raise ToolError("Profile not found. Check that the ID is correct.") from exception
 
     elif isinstance(exception, ElementNotFoundError):
         logger.warning("Element not found%s: %s", ctx, exception)
@@ -75,9 +71,7 @@ def raise_tool_error(exception: Exception, context: str = "") -> NoReturn:
 
     elif isinstance(exception, NetworkError):
         logger.warning("Network error%s: %s", ctx, exception)
-        raise ToolError(
-            "Network error. Check your connection and try again."
-        ) from exception
+        raise ToolError("Network error. Check your connection and try again.") from exception
 
     elif isinstance(exception, ScrapingError):
         logger.warning("Scraping error%s: %s", ctx, exception)
