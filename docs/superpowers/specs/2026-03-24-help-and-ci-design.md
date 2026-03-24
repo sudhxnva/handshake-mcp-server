@@ -39,7 +39,7 @@ No CI exists. The repo has no `.github/workflows/` directory. Without CI, there 
 ### Solution: Single workflow file
 
 **File:** `.github/workflows/ci.yml`
-**Triggers:** `push` to any branch, `pull_request` targeting `master`
+**Triggers:** `push` to any branch (every commit gets checked), `pull_request` targeting `master`
 **Runner:** `ubuntu-latest`
 **Python:** `3.12` (matches `requires-python = ">=3.12"`)
 
