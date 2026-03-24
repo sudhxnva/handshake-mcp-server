@@ -1,7 +1,6 @@
 # Design: Subcommand Help Visibility + GitHub Actions CI
 
-**Date:** 2026-03-24
-**Status:** Approved
+**Date:** 2026-03-24 **Status:** Approved
 
 ---
 
@@ -38,12 +37,10 @@ No CI exists. The repo has no `.github/workflows/` directory. Without CI, there 
 
 ### Solution: Single workflow file
 
-**File:** `.github/workflows/ci.yml`
-**Triggers:** `push` to any branch (every commit gets checked), `pull_request` targeting `master`
-**Runner:** `ubuntu-latest`
-**Python:** `3.12` (matches `requires-python = ">=3.12"`)
+**File:** `.github/workflows/ci.yml`**Triggers:** `push` to any branch (every commit gets checked), `pull_request` targeting `master`**Runner:** `ubuntu-latest`**Python:** `3.12` (matches `requires-python = ">=3.12"`)
 
 **Steps:**
+
 1. `actions/checkout@v4`
 2. `astral-sh/setup-uv@v5` — installs uv, handles dep cache automatically
 3. `uv sync --group dev` — installs all deps including dev group
