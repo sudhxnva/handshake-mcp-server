@@ -4,7 +4,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote_plus
 
 from patchright.async_api import Page
@@ -152,7 +152,9 @@ class HandshakeExtractor:
         self,
         url: str,
         *,
-        wait_until: str = "domcontentloaded",
+        wait_until: Literal[
+            "commit", "domcontentloaded", "load", "networkidle"
+        ] = "domcontentloaded",
     ) -> None:
         """Navigate to a Handshake page and fail fast on auth barriers."""
         try:
