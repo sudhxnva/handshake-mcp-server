@@ -446,13 +446,6 @@ class TestGetJobSearchFilters:
             "remunerations": [{"id": "6", "name": "Medical"}],
             "industries": [{"id": "1034", "name": "Internet & Software"}],
             "jobRoleGroups": [{"id": "64", "name": "Software Developers and Engineers"}],
-            "currentUser": {
-                "institution": {
-                    "curations": {
-                        "nodes": [{"id": "20902", "name": "On-Campus Student Employment"}]
-                    }
-                }
-            },
         }
 
     async def test_returns_structured_filter_dict(self, extractor):
@@ -465,7 +458,7 @@ class TestGetJobSearchFilters:
         assert result["job_types"] == [{"id": "3", "name": "Internship", "slug": "INTERNSHIP"}]
         assert result["employment_types"] == [{"id": "1", "name": "Full-Time", "slug": "FULL_TIME"}]
         assert result["education_levels"] == [{"id": "1", "name": "Bachelors"}]
-        assert result["collections"] == [{"id": "20902", "name": "On-Campus Student Employment"}]
+        assert "collections" not in result
         assert result["industries"] == [{"id": "1034", "name": "Internet & Software"}]
 
     async def test_returns_empty_dict_on_graphql_failure(self, extractor):

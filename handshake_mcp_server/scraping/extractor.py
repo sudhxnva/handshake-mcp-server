@@ -181,16 +181,6 @@ query JobSearchInitialFilterValues(
     id
     name
   }
-  currentUser {
-    institution {
-      curations {
-        nodes {
-          id
-          name
-        }
-      }
-    }
-  }
 }
 """
 
@@ -1365,8 +1355,8 @@ class HandshakeExtractor:
 
         Returns:
             Dict with keys: job_types, employment_types, education_levels,
-            salary_types, pay_schedules, remunerations, collections,
-            industries, job_role_groups.
+            salary_types, pay_schedules, remunerations, industries,
+            job_role_groups.
             Returns empty dict on failure.
         """
         url = f"{BASE_URL}/job-search"
@@ -1386,12 +1376,6 @@ class HandshakeExtractor:
                 result.append(entry)
             return result
 
-        curations = (
-            ((data.get("currentUser") or {}).get("institution") or {})
-            .get("curations", {})
-            .get("nodes", [])
-        )
-
         return {
             "job_types": _extract(data.get("jobTypes"), include_slug=True),
             "employment_types": _extract(data.get("employmentTypes"), include_slug=True),
@@ -1399,7 +1383,6 @@ class HandshakeExtractor:
             "salary_types": _extract(data.get("salaryTypes")),
             "pay_schedules": _extract(data.get("paySchedules")),
             "remunerations": _extract(data.get("remunerations")),
-            "collections": _extract(curations),
             "industries": _extract(data.get("industries")),
             "job_role_groups": _extract(data.get("jobRoleGroups")),
         }
