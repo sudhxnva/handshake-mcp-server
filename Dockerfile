@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/patchright
 
 # Install Python dependencies, Chromium system libs, and patched Chromium binary
-RUN uv sync --frozen && \
+RUN uv sync --frozen --no-group dev && \
     uv run patchright install-deps chromium && \
     uv run patchright install chromium && \
     chmod -R 755 /opt/patchright
@@ -41,6 +41,10 @@ RUN chown -R pwuser:pwuser /app
 
 # Switch to non-root user
 USER pwuser
+
+# Pre-create the profile directory as pwuser so Docker seeds the named volume
+# with correct ownership on first mount.
+RUN mkdir -p /home/pwuser/.handshake-mcp
 
 # Persist the browser profile (cookies/session) across container restarts.
 # Mount a host volume here: -v handshake-profile:/home/pwuser/.handshake-mcp
