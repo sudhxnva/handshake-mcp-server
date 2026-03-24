@@ -149,7 +149,6 @@ async def test_docker_path_fails_fast_when_port_in_use():
 @pytest.mark.asyncio
 async def test_local_path_skips_login_when_profile_exists_and_user_declines():
     import sys
-    from pathlib import Path
 
     from handshake_mcp_server.setup_wizard import _run_local_path
 
