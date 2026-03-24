@@ -419,3 +419,17 @@ class TestSearchJobsGraphQL:
         call_variables = mock_gql.call_args[0][1]
         assert call_variables["input"]["filter"]["jobTypeIds"] == ["3"]
         assert call_variables["input"]["filter"]["curationIds"] == ["20902"]
+
+    async def test_page2_graphql_failure_returns_partial_results(self, extractor):
+        # Page 1 succeeds with 25 edges, page 2 GraphQL fails — returns 25 results, no fallback
+        page1 = {"jobSearch": {"edges": [_make_search_edge(str(i)) for i in range(25)]}}
+
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(side_effect=[page1, None])),
+        ):
+            result = await extractor.search_jobs("engineer", max_pages=3)
+
+        assert len(result["job_ids"]) == 25
+        assert len(result["jobs"]) == 25
+        assert result["sections"]  # search_results text was built from page 1
