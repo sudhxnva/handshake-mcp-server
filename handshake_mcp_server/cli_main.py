@@ -8,11 +8,13 @@ Two-phase startup:
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 from typing import Literal
 
 import inquirer
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from handshake_mcp_server import __version__
 from handshake_mcp_server.authentication import clear_profile, get_authentication_source
@@ -22,9 +24,11 @@ from handshake_mcp_server.browser_manager import (
     get_or_create_browser,
     profile_exists,
     set_headless,
+    set_virtual_display,
 )
 from handshake_mcp_server.core.auth import is_logged_in, wait_for_manual_login
 from handshake_mcp_server.core.exceptions import CredentialsNotFoundError
+from handshake_mcp_server.core.utils import wait_for_cf_challenge
 from handshake_mcp_server.scraping.fields import BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -61,9 +65,9 @@ def choose_transport_interactive() -> Literal["stdio", "streamable-http"]:
     return answers["transport"]
 
 
-def _login_and_exit(headless: bool) -> None:
+def _login_and_exit(headless: bool, log_level: str = "INFO") -> None:
     """Open browser, navigate to Handshake login, wait for manual login, then exit."""
-    _configure_logging("INFO")
+    _configure_logging(log_level)
     logger.info("Handshake MCP Server v%s - Login mode", __version__)
 
     set_headless(headless)
@@ -107,6 +111,68 @@ def _login_and_exit(headless: bool) -> None:
     sys.exit(0 if success else 1)
 
 
+def _vnc_login_and_exit(port: int = 6080, log_level: str = "INFO") -> None:
+    """Start a noVNC server and open Handshake login for web-based login on Linux."""
+    import sys as _sys
+
+    if _sys.platform != "linux":
+        print("--vnc-login is only supported on Linux. Use --login --no-headless instead.")
+        _sys.exit(1)
+
+    _configure_logging(log_level)
+    logger.info("Handshake MCP Server v%s - VNC login mode (port %d)", __version__, port)
+
+    from handshake_mcp_server.vnc_login import VncLoginServer
+
+    async def _do_vnc_login() -> bool:
+        try:
+            with VncLoginServer(port=port) as vnc:
+                print("\nOpen this URL in your browser to complete Handshake login:")
+                print(f"  {vnc.url}")
+                print("\nWaiting for login to complete... (Ctrl+C to cancel)\n")
+
+                # VncLoginServer already set DISPLAY to the Xvfb display.
+                # Ensure pyvirtualdisplay does NOT start its own competing Xvfb.
+                set_virtual_display(False)
+                set_headless(False)
+
+                browser = None
+                try:
+                    browser = await get_or_create_browser()
+                    page = browser.page
+
+                    await page.goto(
+                        f"{BASE_URL}/login",
+                        wait_until="domcontentloaded",
+                        timeout=20000,
+                    )
+
+                    if await is_logged_in(page):
+                        print("Already logged in to Handshake!")
+                        return True
+
+                    await wait_for_manual_login(page)
+                    print(f"\nLogin successful! Profile saved to: {DEFAULT_PROFILE_DIR}")
+                    return True
+
+                except KeyboardInterrupt:
+                    print("\nLogin cancelled.")
+                    return False
+                except Exception as e:
+                    logger.error("Login failed: %s", e)
+                    print(f"Login failed: {e}")
+                    return False
+                finally:
+                    if browser is not None:
+                        await close_browser()
+        except RuntimeError as e:
+            print(f"Error: {e}")
+            return False
+
+    success = asyncio.run(_do_vnc_login())
+    sys.exit(0 if success else 1)
+
+
 def _logout_and_exit() -> None:
     """Clear browser profile and exit."""
     _configure_logging("INFO")
@@ -119,9 +185,7 @@ def _logout_and_exit() -> None:
     print(f"Clear Handshake authentication profile from {DEFAULT_PROFILE_DIR.parent}?")
 
     try:
-        confirmation = (
-            input("Are you sure you want to clear the profile? (y/N): ").strip().lower()
-        )
+        confirmation = input("Are you sure you want to clear the profile? (y/N): ").strip().lower()
         if confirmation not in ("y", "yes"):
             print("Operation cancelled.")
             sys.exit(0)
@@ -149,7 +213,7 @@ def _status_and_exit(headless: bool) -> None:
         sys.exit(1)
 
     print(f"Profile directory: {DEFAULT_PROFILE_DIR}")
-    print(f"Profile exists: Yes")
+    print("Profile exists: Yes")
 
     set_headless(headless)
 
@@ -162,6 +226,13 @@ def _status_and_exit(headless: bool) -> None:
                 wait_until="domcontentloaded",
                 timeout=20000,
             )
+            # Wait for CF challenge and page content to render before checking auth.
+            await wait_for_cf_challenge(browser.page)
+            with contextlib.suppress(PlaywrightTimeoutError):
+                await browser.page.wait_for_function(
+                    "() => (document.body?.innerText || '').trim().length > 0",
+                    timeout=10000,
+                )
             logged_in = await is_logged_in(browser.page)
             return logged_in
         except Exception as e:
@@ -193,8 +264,8 @@ def ensure_authentication_ready() -> None:
         sys.exit(1)
 
 
-def main() -> None:
-    """Main entry point for the Handshake MCP Server CLI."""
+def _build_parser() -> argparse.ArgumentParser:
+    """Build and return the CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="Handshake MCP Server — scrape Handshake via browser automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -219,6 +290,25 @@ def main() -> None:
         "--no-headless",
         action="store_true",
         help="Run browser in headed (visible) mode",
+    )
+    parser.add_argument(
+        "--virtual-display",
+        action="store_true",
+        help="Run browser via Xvfb virtual display (Linux servers). Bypasses Cloudflare headless detection. Requires: apt install xvfb",
+    )
+    parser.add_argument(
+        "--vnc-login",
+        action="store_true",
+        help=(
+            "Start a noVNC server for web-based login on headless Linux servers."
+            " Requires: apt install xvfb x11vnc novnc"
+        ),
+    )
+    parser.add_argument(
+        "--vnc-port",
+        type=int,
+        default=6080,
+        help="Port for the noVNC web server during --vnc-login (default: 6080)",
     )
     parser.add_argument(
         "--transport",
@@ -249,12 +339,26 @@ def main() -> None:
         version=f"handshake-mcp-server {__version__}",
     )
 
+    return parser
+
+
+def main() -> None:
+    """Main entry point for the Handshake MCP Server CLI."""
+    parser = _build_parser()
+
     args = parser.parse_args()
 
     headless = not args.no_headless
 
+    if args.virtual_display:
+        set_virtual_display(True)
+
     if args.login:
-        _login_and_exit(headless=headless)
+        _login_and_exit(headless=headless, log_level=args.log_level)
+        return
+
+    if args.vnc_login:
+        _vnc_login_and_exit(port=args.vnc_port, log_level=args.log_level)
         return
 
     if args.logout:

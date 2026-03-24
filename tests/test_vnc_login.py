@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from handshake_mcp_server.cli_main import _build_parser, _vnc_login_and_exit
 from handshake_mcp_server.vnc_login import VncLoginServer
 
 
@@ -151,3 +152,42 @@ def test_cleans_up_started_processes_when_startup_fails(mock_sleep, monkeypatch)
     assert len(started_procs) == 2
     for proc in started_procs:
         proc.terminate.assert_called_once()
+
+
+# --- CLI tests ---
+
+
+def test_vnc_login_flag_is_parsed():
+    parser = _build_parser()
+    args = parser.parse_args(["--vnc-login"])
+    assert args.vnc_login is True
+
+
+def test_vnc_port_flag_is_parsed():
+    parser = _build_parser()
+    args = parser.parse_args(["--vnc-login", "--vnc-port", "7090"])
+    assert args.vnc_port == 7090
+
+
+def test_vnc_port_default_is_6080():
+    parser = _build_parser()
+    args = parser.parse_args([])
+    assert args.vnc_port == 6080
+
+
+def test_vnc_login_rejected_on_non_linux():
+    with patch("sys.platform", "darwin"):
+        with pytest.raises(SystemExit) as exc_info:
+            _vnc_login_and_exit(port=6080)
+    assert exc_info.value.code == 1
+
+
+def test_main_calls_vnc_login_and_exit_when_flag_set():
+    from handshake_mcp_server.cli_main import main
+
+    with (
+        patch("sys.argv", ["handshake-mcp-server", "--vnc-login"]),
+        patch("handshake_mcp_server.cli_main._vnc_login_and_exit") as mock_vnc,
+    ):
+        main()
+        mock_vnc.assert_called_once()
