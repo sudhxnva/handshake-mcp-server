@@ -10,6 +10,7 @@ dependencies = [
     "inquirer>=3.4.0",
     "patchright>=1.40.0",
     "python-dotenv>=1.1.1",
+    "pyvirtualdisplay>=3.0",
 ]
 
 [project.scripts]
@@ -43,4 +44,4 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["B904", "SIM117"]
+ignore = ["B008", "B904", "SIM117"]
