@@ -1355,6 +1355,7 @@ class HandshakeExtractor:
             }""",
             {"selectors": selectors},
         )
+        return result
 
     async def get_job_search_filters(self) -> dict[str, Any]:
         """Return all available job search filter options for the current user.
