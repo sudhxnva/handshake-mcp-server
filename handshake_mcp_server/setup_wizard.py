@@ -199,5 +199,33 @@ async def _run_local_path() -> None:
 
 
 async def run_setup_wizard() -> None:
-    """Placeholder — implemented in Task 7."""
-    pass
+    """Interactive setup: choose Docker or Local, handle login, print MCP command."""
+    from handshake_mcp_server import __version__
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Handshake MCP Server[/bold]  [dim]v{__version__}[/dim]",
+            subtitle="[dim]Setup[/dim]",
+            expand=False,
+        )
+    )
+    console.print()
+
+    mode = questionary.select(
+        "How do you want to run the server?",
+        choices=[
+            questionary.Choice("Docker  (recommended)", value="docker"),
+            questionary.Choice("Local", value="local"),
+        ],
+    ).ask()
+
+    if mode is None:
+        raise SystemExit(0)
+
+    console.print()
+
+    if mode == "docker":
+        await _run_docker_path()
+    else:
+        await _run_local_path()

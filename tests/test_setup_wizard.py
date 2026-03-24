@@ -158,3 +158,63 @@ async def test_local_path_skips_login_when_profile_exists_and_user_declines():
         await _run_local_path()
 
     mock_print.assert_called_once_with("local")
+
+
+# --- run_setup_wizard ---
+
+
+from unittest.mock import AsyncMock
+
+
+@pytest.mark.asyncio
+async def test_wizard_calls_docker_path_when_docker_selected():
+    from handshake_mcp_server.setup_wizard import run_setup_wizard
+
+    with (
+        patch("questionary.select") as mock_select,
+        patch(
+            "handshake_mcp_server.setup_wizard._run_docker_path", new_callable=AsyncMock
+        ) as mock_docker,
+        patch(
+            "handshake_mcp_server.setup_wizard._run_local_path", new_callable=AsyncMock
+        ) as mock_local,
+    ):
+        mock_select.return_value.ask.return_value = "docker"
+        await run_setup_wizard()
+
+    mock_docker.assert_awaited_once()
+    mock_local.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_wizard_calls_local_path_when_local_selected():
+    from handshake_mcp_server.setup_wizard import run_setup_wizard
+
+    with (
+        patch("questionary.select") as mock_select,
+        patch(
+            "handshake_mcp_server.setup_wizard._run_docker_path", new_callable=AsyncMock
+        ) as mock_docker,
+        patch(
+            "handshake_mcp_server.setup_wizard._run_local_path", new_callable=AsyncMock
+        ) as mock_local,
+    ):
+        mock_select.return_value.ask.return_value = "local"
+        await run_setup_wizard()
+
+    mock_local.assert_awaited_once()
+    mock_docker.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_wizard_exits_cleanly_on_ctrl_c():
+    from handshake_mcp_server.setup_wizard import run_setup_wizard
+
+    with (
+        patch("questionary.select") as mock_select,
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        mock_select.return_value.ask.return_value = None  # questionary returns None on Ctrl+C
+        await run_setup_wizard()
+
+    assert exc_info.value.code == 0
