@@ -5,7 +5,7 @@
 
 ## Problem
 
-Setting up the Handshake MCP server requires knowing several commands in the right order, and the Docker path involves a verbose `docker run` command that is impractical to paste into an IDE config. New users hit a `CredentialsNotFoundError` with no guidance. The goal is to reduce setup to two commands: `uvx handshake-scraper-mcp setup` and a single `claude mcp add-json` line.
+Setting up the Handshake MCP server requires knowing several commands in the right order, and the Docker path involves a verbose `docker run` command that is impractical to paste into an IDE config. New users hit a `CredentialsNotFoundError` with no guidance. The goal is to reduce setup to two commands: `uvx handshake-mcp-server setup` and a single `claude mcp add-json` line.
 
 ## Scope
 
@@ -86,7 +86,7 @@ Both paths end with:
 ```
   Run this command to add Handshake to Claude:
 
-  claude mcp add-json handshake '{"command":"uvx","args":["handshake-scraper-mcp","docker"]}'
+  claude mcp add-json handshake '{"command":"uvx","args":["handshake-mcp-server","docker"]}'
   ↑ copied to clipboard
 
   Done. Restart Claude to activate.
@@ -120,10 +120,10 @@ The resulting MCP configs:
 
 ```json
 // Local
-{"command": "uvx", "args": ["handshake-scraper-mcp"]}
+{"command": "uvx", "args": ["handshake-mcp-server"]}
 
 // Docker
-{"command": "uvx", "args": ["handshake-scraper-mcp", "docker"]}
+{"command": "uvx", "args": ["handshake-mcp-server", "docker"]}
 ```
 
 ---
@@ -168,7 +168,7 @@ The existing `choose_transport_interactive()` in `cli_main.py` is updated from `
 
 ## Success Criteria
 
-- `uvx handshake-scraper-mcp setup` completes end-to-end on both paths with no manual intervention beyond the browser/VNC login step
+- `uvx handshake-mcp-server setup` completes end-to-end on both paths with no manual intervention beyond the browser/VNC login step
 - `handshake-mcp-server docker` correctly passes stdio: running `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | handshake-mcp-server docker` produces a valid JSON-RPC initialize response
 - No `inquirer` import remains in the codebase
 - Auto-trigger fires in TTY context when no profile exists; does not fire in non-TTY context
