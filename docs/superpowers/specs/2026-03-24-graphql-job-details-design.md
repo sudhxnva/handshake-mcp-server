@@ -320,11 +320,31 @@ The app always sends `after` even on page 1 (confirmed by live interception). We
 
 ### `job_ids`
 
-Extracted from `edges[].node.job.id` (string IDs). Previously always `[]`.
+Extracted from `edges[].node.job.id` (string IDs). Previously always `[]`. Kept as a flat list for backward compatibility with callers that pass IDs directly to `get_job_details`.
+
+### `jobs`
+
+New structured list returned alongside `job_ids`. Each entry contains the card-level metadata visible on the Handshake search results page — enough for an LLM to decide which jobs to drill into without calling `get_job_details` on every result.
+
+```json
+[
+  {
+    "id": "123",
+    "title": "Software Engineer Intern",
+    "company": "Google",
+    "job_type": "Internship",
+    "employment_type": "Full-Time",
+    "salary": "$45/hr",
+    "locations": ["Seattle, WA", "New York, NY"]
+  }
+]
+```
+
+All fields come from `edges[].node.job` in the GraphQL response — no extra round-trips. Fields follow the same formatting rules as `get_job_details` metadata (salary in dollars, location as `city + state`). Fields are omitted if null/missing. On fallback (GraphQL failure), `jobs` is an empty list and `job_ids` is also `[]`.
 
 ### `sections.search_results`
 
-When using GraphQL, each job is one line: `{company} — {title} · {salary} · {job_type} · {location}`. On fallback, retains current behavior (raw innerText).
+When using GraphQL, each job is one line: `{company} — {title} · {salary} · {job_type} · {location}`. Provides a human-readable summary; use `jobs` for structured access. On fallback, retains current behavior (raw innerText).
 
 ---
 
