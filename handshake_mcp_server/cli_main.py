@@ -30,6 +30,7 @@ from handshake_mcp_server.core.auth import is_logged_in, wait_for_manual_login
 from handshake_mcp_server.core.exceptions import CredentialsNotFoundError
 from handshake_mcp_server.core.utils import wait_for_cf_challenge
 from handshake_mcp_server.scraping.fields import BASE_URL
+from handshake_mcp_server.server import create_mcp_server
 
 logger = logging.getLogger(__name__)
 
@@ -275,18 +276,15 @@ def _docker_and_exit() -> None:
     )
 
 
-async def _run_setup_wizard_stub() -> None:
-    """Placeholder coroutine — replaced in Task 8."""
-    pass
-
-
 def _setup_and_exit() -> None:
     """Run the interactive setup wizard and exit.
 
-    Always calls sys.exit() — callers should not place logic after this call.
+    Always terminates via sys.exit() — callers must not place logic after this call.
     """
     _configure_logging("INFO")
-    asyncio.run(_run_setup_wizard_stub())
+    from handshake_mcp_server.setup_wizard import run_setup_wizard
+
+    asyncio.run(run_setup_wizard())
     sys.exit(0)
 
 
@@ -418,6 +416,16 @@ def main() -> None:
     _configure_logging(args.log_level)
     logger.info("Handshake MCP Server v%s starting...", __version__)
 
+    # Auto-trigger setup wizard on first run in TTY contexts only.
+    # Must NOT fire in non-TTY contexts (e.g., Claude Desktop launching the process).
+    if sys.stdin.isatty() and not profile_exists():
+        import questionary as _q
+
+        answer = _q.confirm("No profile found. Run setup?", default=True).ask()
+        if answer:
+            _setup_and_exit()
+            return  # unreachable — _setup_and_exit calls sys.exit()
+
     # Phase 1: Verify authentication
     ensure_authentication_ready()
 
@@ -436,8 +444,6 @@ def main() -> None:
                 sys.exit(0)
         else:
             transport = "stdio"
-
-    from handshake_mcp_server.server import create_mcp_server
 
     mcp = create_mcp_server()
 

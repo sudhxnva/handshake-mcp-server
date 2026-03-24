@@ -1,6 +1,8 @@
 """Tests for setup wizard helper functions."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # --- _check_docker ---
 
@@ -109,15 +111,14 @@ def test_copy_to_clipboard_returns_false_on_failure():
 # --- _run_docker_path ---
 
 
-import pytest
-
-
 @pytest.mark.asyncio
 async def test_docker_path_fails_fast_when_docker_not_installed():
     from handshake_mcp_server.setup_wizard import _run_docker_path
 
     with (
-        patch("handshake_mcp_server.setup_wizard._check_docker", return_value=(False, "not installed")),
+        patch(
+            "handshake_mcp_server.setup_wizard._check_docker", return_value=(False, "not installed")
+        ),
         pytest.raises(SystemExit) as exc_info,
     ):
         await _run_docker_path()
@@ -161,9 +162,6 @@ async def test_local_path_skips_login_when_profile_exists_and_user_declines():
 
 
 # --- run_setup_wizard ---
-
-
-from unittest.mock import AsyncMock
 
 
 @pytest.mark.asyncio

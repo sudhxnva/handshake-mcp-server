@@ -73,3 +73,62 @@ def test_main_dispatches_setup_subcommand():
     ):
         main()
         mock_setup.assert_called_once()
+
+
+def test_auto_trigger_fires_in_tty_when_no_profile():
+    """Auto-trigger should launch setup when TTY + no profile + user confirms."""
+    from handshake_mcp_server.cli_main import main
+
+    with (
+        patch("sys.argv", ["handshake-mcp-server"]),
+        patch("sys.stdin") as mock_stdin,
+        patch("handshake_mcp_server.cli_main.profile_exists", return_value=False),
+        patch("handshake_mcp_server.cli_main._setup_and_exit") as mock_setup,
+        patch("questionary.confirm") as mock_confirm,
+    ):
+        mock_stdin.isatty.return_value = True
+        mock_confirm.return_value.ask.return_value = True  # user says yes
+        main()
+
+    mock_setup.assert_called_once()
+
+
+def test_auto_trigger_does_not_fire_in_non_tty():
+    """Auto-trigger must NOT fire when not a TTY (e.g., launched by Claude Desktop)."""
+    from handshake_mcp_server.cli_main import main
+
+    with (
+        patch("sys.argv", ["handshake-mcp-server"]),
+        patch("sys.stdin") as mock_stdin,
+        patch("handshake_mcp_server.cli_main.profile_exists", return_value=False),
+        patch("handshake_mcp_server.cli_main._setup_and_exit") as mock_setup,
+        patch(
+            "handshake_mcp_server.cli_main.ensure_authentication_ready",
+            side_effect=SystemExit(1),
+        ),
+        pytest.raises(SystemExit),
+    ):
+        mock_stdin.isatty.return_value = False
+        main()
+
+    mock_setup.assert_not_called()
+
+
+def test_auto_trigger_skipped_when_profile_exists():
+    """Auto-trigger must not fire if profile already exists."""
+    from handshake_mcp_server.cli_main import main
+
+    with (
+        patch("sys.argv", ["handshake-mcp-server", "--transport", "stdio"]),
+        patch("sys.stdin") as mock_stdin,
+        patch("handshake_mcp_server.cli_main.profile_exists", return_value=True),
+        patch("handshake_mcp_server.cli_main._setup_and_exit") as mock_setup,
+        patch("handshake_mcp_server.cli_main.ensure_authentication_ready"),
+        patch("handshake_mcp_server.cli_main.create_mcp_server") as mock_server,
+    ):
+        mock_stdin.isatty.return_value = True
+        mock_server.return_value.run.side_effect = SystemExit(0)
+        with pytest.raises(SystemExit):
+            main()
+
+    mock_setup.assert_not_called()
