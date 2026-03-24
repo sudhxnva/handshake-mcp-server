@@ -33,7 +33,3 @@ git push origin vX.Y.Z
 Pushing the tag triggers `publish.yml`, which:
 1. Builds the wheel and sdist with `uv build`
 2. Uploads to PyPI via OIDC (no token required)
-
-## Chromium install note
-
-`patchright` is a dependency but the Chromium binary is **not** bundled in the wheel. Users must install it separately. The setup wizard (`handshake-mcp-server setup`) detects if Chromium is missing and prints the exact install command.
