@@ -87,6 +87,17 @@ Handshake is a React SPA — URL patterns change. Current verified routes:
 
 Always verify URLs against live Handshake before adding new sections. The SPA can redirect or change routes without warning.
 
+## Handshake GraphQL API
+
+Handshake exposes an internal Apollo GraphQL API at `/hs/graphql`. It uses existing session cookies — no CSRF token needed; `Content-Type: application/json` + `X-Requested-With: XMLHttpRequest` is sufficient.
+
+Queries are executed via `page.evaluate(fetch('/hs/graphql', ...))` from the Playwright browser context (`scraping/extractor.py::_fetch_graphql`). Navigate to a Handshake page first to establish session context before calling GraphQL.
+
+Key gotchas:
+- **Salary values are in cents** — GraphQL returns `3000` for $30. Divide by 100 to get dollars.
+- **`Institution` is a union type** — direct field selections on `currentUser.institution` fail with "Selections can't be made directly on unions". Use inline fragments (`... on ConcreteType { }`) or avoid the field.
+- **Cursor pagination** — `after` is `base64(str((page - 1) * 25))`. Page 1 uses `after = base64("0")`, not omitting it.
+
 ## Scraping Rules
 
 - **One section = one navigation.** Each entry in `STUDENT_SECTIONS` / `EMPLOYER_SECTIONS` (`scraping/fields.py`) maps to exactly one page navigation.
@@ -106,6 +117,9 @@ Optional additional keys:
 - `job_ids: [id, ...]` (search_jobs only)
 - `employer_ids: [id, ...]` (search_employers only)
 - `event_ids: [id, ...]` (search_events only)
+
+`get_job_search_filters` returns a flat dict (no `url`/`sections` wrapper):
+`{job_types, employment_types, education_levels, salary_types, pay_schedules, remunerations, industries, job_role_groups}` — each a list of `{id, name}` (job_types and employment_types also include `slug`). `collections` is not returned because Handshake's `Institution` GraphQL type is a union.
 
 ## Verifying Bug Reports
 
