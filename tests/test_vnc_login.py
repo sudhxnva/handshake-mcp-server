@@ -190,4 +190,4 @@ def test_main_calls_vnc_login_and_exit_when_flag_set():
         patch("handshake_mcp_server.cli_main._vnc_login_and_exit") as mock_vnc,
     ):
         main()
-        mock_vnc.assert_called_once()
+        mock_vnc.assert_called_once_with(port=6080, log_level="INFO")

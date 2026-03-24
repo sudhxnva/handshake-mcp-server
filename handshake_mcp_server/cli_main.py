@@ -113,11 +113,9 @@ def _login_and_exit(headless: bool, log_level: str = "INFO") -> None:
 
 def _vnc_login_and_exit(port: int = 6080, log_level: str = "INFO") -> None:
     """Start a noVNC server and open Handshake login for web-based login on Linux."""
-    import sys as _sys
-
-    if _sys.platform != "linux":
+    if sys.platform != "linux":
         print("--vnc-login is only supported on Linux. Use --login --no-headless instead.")
-        _sys.exit(1)
+        sys.exit(1)
 
     _configure_logging(log_level)
     logger.info("Handshake MCP Server v%s - VNC login mode (port %d)", __version__, port)
