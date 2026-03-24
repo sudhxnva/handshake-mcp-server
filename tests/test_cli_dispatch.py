@@ -132,3 +132,13 @@ def test_auto_trigger_skipped_when_profile_exists():
             main()
 
     mock_setup.assert_not_called()
+
+
+def test_parser_epilog_lists_subcommands():
+    from handshake_mcp_server.cli_main import _build_parser
+
+    parser = _build_parser()
+    epilog = parser.epilog or ""
+    assert "setup" in epilog
+    assert "docker" in epilog
+    assert "docker-clean" in epilog

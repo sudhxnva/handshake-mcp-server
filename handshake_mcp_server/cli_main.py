@@ -325,6 +325,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Handshake MCP Server — scrape Handshake via browser automation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Subcommands (positional, before any flags):\n"
+            "  setup         Interactive wizard: Docker or Local path, login, prints MCP config\n"
+            "  docker        Exec into Docker container (MCP stdio entrypoint for IDEs)\n"
+            "  docker-clean  Remove handshake-mcp-server image and handshake-profile volume\n"
+        ),
     )
 
     parser.add_argument(
