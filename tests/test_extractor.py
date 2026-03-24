@@ -1,10 +1,12 @@
 """Unit tests for HandshakeExtractor GraphQL helpers and pure functions."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from handshake_mcp_server.core.exceptions import HandshakeScraperException
 from handshake_mcp_server.scraping.extractor import (
+    ExtractedSection,
     HandshakeExtractor,
     _build_job_metadata,
     _build_search_job_entry,
@@ -260,3 +262,76 @@ class TestBuildSearchJobEntry:
         assert "salary" not in entry
         assert "locations" not in entry
         assert "job_type" not in entry
+
+
+def _make_gql_job(**overrides):
+    """Minimal valid GraphQL job dict for testing."""
+    base = {
+        "id": "123",
+        "title": "SWE Intern",
+        "description": "<p>Build things.</p>",
+        "hybrid": False,
+        "remote": True,
+        "onSite": False,
+        "startDate": None,
+        "endDate": None,
+        "expirationDate": "2026-05-01",
+        "createdAt": "2026-03-01",
+        "employer": {"id": "456", "name": "Acme", "industry": {"name": "Tech"}},
+        "salaryType": {"behaviorIdentifier": "PAID"},
+        "salaryRange": {"min": 4000, "max": 4000, "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"}},
+        "locations": [{"city": "Boulder", "state": "CO"}],
+        "jobType": {"behaviorIdentifier": "INTERNSHIP"},
+        "employmentType": {"behaviorIdentifier": "FULL_TIME"},
+        "studentScreen": {
+            "workAuthRequired": False,
+            "acceptsOptCandidates": True,
+            "acceptsCptCandidates": True,
+            "willingToSponsorCandidate": False,
+        },
+        "jobApplySetting": {"externalUrl": "https://apply.example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestScrapeJobGraphQL:
+    async def test_graphql_success_returns_rich_metadata(self, extractor):
+        job_data = _make_gql_job()
+        extracted = ExtractedSection(text="scraped text", references=[])
+
+        with (
+            patch.object(extractor, "extract_page", new=AsyncMock(return_value=extracted)),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value={"job": job_data})),
+            patch.object(extractor, "_html_to_text", new=AsyncMock(return_value="Build things.")),
+        ):
+            result = await extractor.scrape_job("123")
+
+        assert result["metadata"]["title"] == "SWE Intern"
+        assert result["metadata"]["company"] == "Acme"
+        assert result["metadata"]["salary"] == "$40/hr"
+        assert result["metadata"]["work_type"] == "remote"
+        assert result["sections"]["job_posting"] == "Build things."
+        assert "references" not in result  # no DOM references in GraphQL path
+
+    async def test_graphql_fallback_uses_scraped_text(self, extractor):
+        extracted = ExtractedSection(text="Scraped job text", references=[])
+
+        with (
+            patch.object(extractor, "extract_page", new=AsyncMock(return_value=extracted)),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=None)),
+            patch.object(extractor, "_extract_job_metadata", new=AsyncMock(return_value={"title": "SWE", "company_id": "456", "job_id": "123", "company": "", "apply_url": ""})),
+        ):
+            result = await extractor.scrape_job("123")
+
+        assert result["sections"]["job_posting"] == "Scraped job text"
+
+    async def test_null_job_raises_exception(self, extractor):
+        extracted = ExtractedSection(text="some text", references=[])
+
+        with (
+            patch.object(extractor, "extract_page", new=AsyncMock(return_value=extracted)),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value={"job": None})),
+        ):
+            with pytest.raises(HandshakeScraperException, match="not found"):
+                await extractor.scrape_job("999")

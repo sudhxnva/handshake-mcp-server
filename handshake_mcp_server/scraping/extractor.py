@@ -733,15 +733,42 @@ class HandshakeExtractor:
     async def scrape_job(self, job_id: str) -> dict[str, Any]:
         """Scrape a single job posting.
 
+        Tries Handshake's internal GraphQL API first for rich structured data.
+        Falls back to innerText scraping if GraphQL fails.
+
         Returns:
-            {url, sections: {name: text}, metadata: {title, company, ...}}
+            {url, sections: {job_posting: text}, metadata: {...}}
+            GraphQL path: metadata has full structured fields, no references key.
+            Fallback path: metadata has basic fields, references key present if found.
         """
         url = f"{BASE_URL}/jobs/{job_id}"
+
+        # Always navigate and scrape — provides session context for GraphQL
+        # and fallback data if GraphQL fails.
         extracted = await self.extract_page(url, section_name="job_posting")
 
+        # Attempt GraphQL path
+        data = await self._fetch_graphql(JOB_DETAILS_QUERY, {"id": job_id})
+        if data is not None:
+            job = data.get("job")
+            if job is None:
+                raise HandshakeScraperException(
+                    f"Job {job_id} not found on Handshake. "
+                    "Verify the ID is correct and the job is still active."
+                )
+            description_text = await self._html_to_text(job.get("description") or "")
+            return {
+                "url": url,
+                "sections": {"job_posting": description_text},
+                "metadata": _build_job_metadata(job),
+            }
+
+        # Fallback: use the already-scraped innerText content
+        logger.debug("GraphQL failed for job %s, using scraped content", job_id)
         sections: dict[str, str] = {}
         references: dict[str, list[Reference]] = {}
         section_errors: dict[str, dict[str, Any]] = {}
+
         if extracted.text and extracted.text != _RATE_LIMITED_MSG:
             sections["job_posting"] = extracted.text
             if extracted.references:
@@ -749,7 +776,6 @@ class HandshakeExtractor:
         elif extracted.error:
             section_errors["job_posting"] = extracted.error
 
-        # Extract structured metadata while still on the job page
         metadata: dict[str, Any] = {}
         if sections:
             try:
@@ -758,10 +784,7 @@ class HandshakeExtractor:
             except Exception as e:
                 logger.debug("Could not extract job metadata: %s", e)
 
-        result: dict[str, Any] = {
-            "url": url,
-            "sections": sections,
-        }
+        result: dict[str, Any] = {"url": url, "sections": sections}
         if metadata:
             result["metadata"] = metadata
         if references:
