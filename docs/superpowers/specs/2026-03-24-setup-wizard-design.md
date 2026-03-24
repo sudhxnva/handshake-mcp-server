@@ -10,12 +10,14 @@ Setting up the Handshake MCP server requires knowing several commands in the rig
 ## Scope
 
 - Interactive setup wizard (`handshake-mcp-server setup`)
-- Auto-trigger wizard on first run when no profile exists
+- Auto-trigger wizard on first run when no profile exists (TTY only — see below)
 - `docker` subcommand as a thin wrapper for the verbose `docker run` invocation
 - Replace `inquirer` with `questionary` + add `rich` for styled output
 - No IDE config file writing — the wizard prints the `claude mcp add-json` command
 
-Out of scope: VS Code / Windsurf / Cursor config automation, port management (stdio transport used throughout, no ports).
+Out of scope: VS Code / Windsurf / Cursor config automation. No port management — stdio transport is used for both local and Docker runtime paths.
+
+**Assumption:** users run via `uvx`. The printed `claude mcp add-json` commands are scoped to `uvx`. Users on a cloned repo get a note to adapt the command.
 
 ---
 
@@ -30,13 +32,27 @@ Two new subcommands are added alongside existing flags. No breaking changes.
 
 Existing flags (`--login`, `--logout`, `--status`, `--transport`, `--vnc-login`, etc.) remain unchanged.
 
-**Auto-trigger:** When the server starts with no subcommand, no flags, and no profile exists, it prompts `"No profile found. Run setup? [Y/n]"` and launches the wizard on confirmation rather than exiting with an error.
+**Auto-trigger:** When the server starts with no subcommand, no flags, and no profile exists, AND `sys.stdin.isatty()` is True, it prompts `"No profile found. Run setup? [Y/n]"` and launches the wizard on confirmation. In non-TTY contexts (e.g., launched by Claude Desktop), the auto-trigger is skipped entirely — the server falls through to the existing `CredentialsNotFoundError` exit with an improved message: `"No profile found. Run: handshake-mcp-server setup"`.
+
+---
+
+## Volume Naming Contract
+
+The wizard (Docker path) and the `docker` subcommand both reference the named volume `handshake-profile`. To prevent Compose from prefixing the name with the project directory, `docker-compose.yml` declares the volume with an explicit `name:` field:
+
+```yaml
+volumes:
+  handshake-profile:
+    name: handshake-profile
+```
+
+This guarantees the volume name is always `handshake-profile` regardless of the Compose project name, matching the `os.execvp` argument exactly.
 
 ---
 
 ## Setup Wizard Flow
 
-Entry: `handshake-mcp-server setup` (or auto-triggered).
+Entry: `handshake-mcp-server setup` (or auto-triggered on TTY).
 
 ```
 ◆  Handshake MCP Server — Setup
@@ -49,15 +65,16 @@ Entry: `handshake-mcp-server setup` (or auto-triggered).
 ### Docker path
 
 1. Check Docker is installed and daemon is running — fail fast with a clear message if not
-2. Build the image: `docker compose build` — stream output, show spinner
+2. Build the image: `docker compose build` — stream Docker output directly; suppress behind a spinner only if output is clean, show raw output on failure
 3. Run VNC login: `docker compose run --rm -p 6080:6080 handshake-mcp --vnc-login`
+   - Check port 6080 is free before running — if not, print `"Port 6080 is in use. Stop the conflicting service and run setup again."` and exit 1
    - Print the VNC URL (`http://localhost:6080/vnc.html`) prominently
    - Wait for the login subprocess to complete
 4. Print the `add-json` command and attempt clipboard copy
 
 ### Local path
 
-1. Check if profile already exists — skip login if so, confirm with user
+1. Check if profile already exists — if so, ask `"Already logged in — re-run login anyway? [y/N]"` and skip login if no
 2. Open browser (non-headless) and navigate to Handshake login
 3. Wait for `wait_for_manual_login()` to detect successful login
 4. Print the `add-json` command and attempt clipboard copy
@@ -95,9 +112,11 @@ def _docker_and_exit() -> None:
     ])
 ```
 
-`os.execvp` replaces the Python process with `docker run` — no subprocess wrapper, no PID overhead. Fails immediately with a clear OS error if Docker is not installed.
+`os.execvp` replaces the Python process with `docker run` — no subprocess wrapper, no PID overhead, signal handling falls naturally to Docker. Fails immediately with `FileNotFoundError` if Docker is not installed.
 
-The resulting MCP configs are:
+The `--transport stdio` flag is explicit for clarity; it matches the server default but makes the intent obvious.
+
+The resulting MCP configs:
 
 ```json
 // Local
@@ -128,6 +147,7 @@ The existing `choose_transport_interactive()` in `cli_main.py` is updated from `
 | `handshake_mcp_server/setup_wizard.py` | New — all wizard logic |
 | `handshake_mcp_server/cli_main.py` | Add `setup` / `docker` subcommand dispatch; replace `inquirer`; auto-trigger logic |
 | `pyproject.toml` | Add `rich`, `questionary`; remove `inquirer` |
+| `docker-compose.yml` | Add `name: handshake-profile` to volume definition |
 
 ---
 
@@ -136,17 +156,20 @@ The existing `choose_transport_interactive()` in `cli_main.py` is updated from `
 | Scenario | Behaviour |
 |---|---|
 | Docker not installed (docker path) | Print clear message with install link, exit 1 |
-| Docker daemon not running | Print "Docker is not running — start Docker Desktop", exit 1 |
+| Docker daemon not running | Print `"Docker is not running — start Docker Desktop"`, exit 1 |
 | `docker compose build` fails | Stream output already shown; print failure message, exit 1 |
-| Login timeout / cancelled | Print "Login cancelled — run `setup` again when ready", exit 0 |
-| Profile already exists (local path) | Ask "Already logged in — reconfigure anyway? [y/N]", skip login if no |
-| `docker` image not built (docker subcommand) | `docker run` will fail with its own error — acceptable, user should run `setup` first |
+| Port 6080 already in use (VNC login step) | Print `"Port 6080 is in use. Stop the conflicting service and run setup again."`, exit 1 |
+| Login timeout / cancelled | Print `"Login cancelled — run setup again when ready"`, exit 0. This is intentional: the user made a deliberate choice to cancel, which is not an error. This differs from `--login --no-headless` which exits 1 on failure — that distinction is acknowledged. |
+| Profile already exists (local path) | Ask `"Already logged in — re-run login anyway? [y/N]"`, skip if no |
+| `docker` image not built (docker subcommand) | `docker run` fails with its own error — acceptable; user should run `setup` first |
+| Non-TTY auto-trigger | Skip wizard entirely; exit 1 with message pointing to `setup` |
 
 ---
 
 ## Success Criteria
 
-- `uvx handshake-scraper-mcp setup` completes end-to-end with no manual intervention beyond the browser/VNC login
-- `handshake-mcp-server docker` passes stdio correctly — the MCP server starts and responds to tool calls when launched via the IDE config
+- `uvx handshake-scraper-mcp setup` completes end-to-end on both paths with no manual intervention beyond the browser/VNC login step
+- `handshake-mcp-server docker` correctly passes stdio: running `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | handshake-mcp-server docker` produces a valid JSON-RPC initialize response
 - No `inquirer` import remains in the codebase
-- Auto-trigger fires when `handshake-mcp-server` is run with no args and no profile
+- Auto-trigger fires in TTY context when no profile exists; does not fire in non-TTY context
+- Volume name `handshake-profile` resolves consistently between `docker compose run` (wizard) and `docker run` (subcommand)
