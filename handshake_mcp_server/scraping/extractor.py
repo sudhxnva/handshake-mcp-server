@@ -152,7 +152,9 @@ class HandshakeExtractor:
         self,
         url: str,
         *,
-        wait_until: Literal["commit", "domcontentloaded", "load", "networkidle"] = "domcontentloaded",
+        wait_until: Literal[
+            "commit", "domcontentloaded", "load", "networkidle"
+        ] = "domcontentloaded",
     ) -> None:
         """Navigate to a Handshake page and fail fast on auth barriers."""
         try:

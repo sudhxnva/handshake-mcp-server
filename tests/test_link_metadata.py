@@ -91,6 +91,8 @@ def test_dedupe_references_removes_duplicates():
 
 
 def test_dedupe_references_respects_cap():
-    refs: list[Reference] = [{"kind": "job", "url": f"/stu/jobs/{i}", "text": f"Job {i}"} for i in range(20)]
+    refs: list[Reference] = [
+        {"kind": "job", "url": f"/stu/jobs/{i}", "text": f"Job {i}"} for i in range(20)
+    ]
     result = dedupe_references(refs, cap=5)
     assert len(result) == 5
