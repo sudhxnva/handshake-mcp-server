@@ -35,26 +35,39 @@ Patchright does **not** bypass headless detection when `headless=True`. This is 
 
 Cloudflare challenges (`?cf_challenge=1`) are handled in `core/utils.py::wait_for_cf_challenge()`, called in `scraping/extractor.py::_goto_with_auth_checks()`. If unresolved, a `RateLimitError` is raised.
 
+## CLI Subcommands
+
+Subcommands are dispatched before argparse by checking `sys.argv[1]` — they do NOT appear in `--help`.
+
+- `setup` — interactive wizard: Docker or Local path, login, prints `claude mcp add-json` command
+- `docker` — `os.execvp` into `docker run --rm -i --transport stdio --virtual-display` (used as MCP entrypoint by IDE)
+- `docker-clean` — removes `handshake-mcp-server` image and `handshake-profile` volume (force-stops containers first)
+
 ## Docker Deployment
 
+Prefer the wizard (`handshake-mcp-server setup`) over manual commands. For manual use:
+
 ```bash
-# Build
-docker build -t handshake-mcp-server .
-
-# One-time login (open http://localhost:6080/vnc.html in browser, log into Handshake)
-docker run -it --rm \
-  -p 6080:6080 \
-  -v handshake-profile:/home/pwuser/.handshake-mcp \
-  handshake-mcp-server --vnc-login
-
-# Run server (uses saved profile from volume)
-docker run -d \
-  -p 8000:8000 \
-  -v handshake-profile:/home/pwuser/.handshake-mcp \
-  handshake-mcp-server
+docker compose build
+docker compose run --rm -p 6080:6080 handshake-mcp --vnc-login  # one-time login
+docker compose up -d                                              # run HTTP server
 ```
 
+Named volume `handshake-profile` uses explicit `name:` in `docker-compose.yml` to prevent Compose from prefixing it with the project directory.
+
 The default CMD uses `--virtual-display` to bypass Cloudflare headless detection inside the container.
+
+## questionary in async contexts
+
+`questionary.ask()` calls `asyncio.run()` internally — crashes with `RuntimeError: cannot be called from a running event loop` if used inside an `async` function. Always use `await question.ask_async()` inside async functions; `.ask()` is only safe in sync contexts.
+
+## Chromium Profile Lock Files
+
+Chromium writes `SingletonLock`, `SingletonCookie`, `SingletonSocket` to the profile dir and doesn't clean up on container kill. `core/browser.py::start()` removes these before launching. If you see "profile is in use by another process", these files are the cause.
+
+## Linting
+
+`E501` (line too long) is suppressed globally in `pyproject.toml` — pre-existing violations in JS strings and help text made per-line suppression unworkable.
 
 ## Handshake URL Routes
 
