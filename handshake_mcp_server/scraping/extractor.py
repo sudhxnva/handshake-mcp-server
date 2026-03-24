@@ -233,9 +233,7 @@ def _format_salary(
 
     min_val = raw_min // 100 if raw_min else 0
     max_val = raw_max // 100 if raw_max else 0
-    suffix = _PAY_SCHEDULE_SUFFIX.get(
-        (pay_schedule or {}).get("behaviorIdentifier", ""), ""
-    )
+    suffix = _PAY_SCHEDULE_SUFFIX.get((pay_schedule or {}).get("behaviorIdentifier", ""), "")
 
     if min_val and max_val:
         if min_val == max_val:
@@ -938,9 +936,7 @@ class HandshakeExtractor:
                 if page_num == 1:
                     # GraphQL failed on page 1 — fall back to scraping
                     logger.debug("GraphQL failed for search, falling back to scraping")
-                    return await self._search_jobs_fallback(
-                        base_url, keywords, location, max_pages
-                    )
+                    return await self._search_jobs_fallback(base_url, keywords, location, max_pages)
                 # Pages 2+: stop pagination silently, return what we have
                 break
 
@@ -1371,7 +1367,7 @@ class HandshakeExtractor:
 
         def _extract(items: list[dict] | None, include_slug: bool = False) -> list[dict]:
             result = []
-            for item in (items or []):
+            for item in items or []:
                 entry: dict[str, Any] = {"id": str(item["id"]), "name": item["name"]}
                 if include_slug and "behaviorIdentifier" in item:
                     entry["slug"] = item["behaviorIdentifier"]

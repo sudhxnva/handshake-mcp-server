@@ -225,7 +225,9 @@ class TestBuildJobMetadata:
 
     def test_salary_type_omitted_when_salary_omitted(self):
         # When salary range is zero, both salary and salary_type should be absent
-        job = self._job(salaryRange={"min": 0, "max": 0, "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"}})
+        job = self._job(
+            salaryRange={"min": 0, "max": 0, "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"}}
+        )
         meta = _build_job_metadata(job)
         assert "salary" not in meta
         assert "salary_type" not in meta
@@ -279,7 +281,11 @@ def _make_gql_job(**overrides):
         "createdAt": "2026-03-01",
         "employer": {"id": "456", "name": "Acme", "industry": {"name": "Tech"}},
         "salaryType": {"behaviorIdentifier": "PAID"},
-        "salaryRange": {"min": 4000, "max": 4000, "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"}},
+        "salaryRange": {
+            "min": 4000,
+            "max": 4000,
+            "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"},
+        },
         "locations": [{"city": "Boulder", "state": "CO"}],
         "jobType": {"behaviorIdentifier": "INTERNSHIP"},
         "employmentType": {"behaviorIdentifier": "FULL_TIME"},
@@ -302,7 +308,9 @@ class TestScrapeJobGraphQL:
 
         with (
             patch.object(extractor, "extract_page", new=AsyncMock(return_value=extracted)),
-            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value={"job": job_data})),
+            patch.object(
+                extractor, "_fetch_graphql", new=AsyncMock(return_value={"job": job_data})
+            ),
             patch.object(extractor, "_html_to_text", new=AsyncMock(return_value="Build things.")),
         ):
             result = await extractor.scrape_job("123")
@@ -320,7 +328,19 @@ class TestScrapeJobGraphQL:
         with (
             patch.object(extractor, "extract_page", new=AsyncMock(return_value=extracted)),
             patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=None)),
-            patch.object(extractor, "_extract_job_metadata", new=AsyncMock(return_value={"title": "SWE", "company_id": "456", "job_id": "123", "company": "", "apply_url": ""})),
+            patch.object(
+                extractor,
+                "_extract_job_metadata",
+                new=AsyncMock(
+                    return_value={
+                        "title": "SWE",
+                        "company_id": "456",
+                        "job_id": "123",
+                        "company": "",
+                        "apply_url": "",
+                    }
+                ),
+            ),
         ):
             result = await extractor.scrape_job("123")
 
@@ -365,7 +385,9 @@ class TestSearchJobsGraphQL:
 
         with (
             patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
-            patch.object(extractor, "_fetch_graphql", new=AsyncMock(side_effect=[gql_response, None])),
+            patch.object(
+                extractor, "_fetch_graphql", new=AsyncMock(side_effect=[gql_response, None])
+            ),
         ):
             result = await extractor.search_jobs("engineer", max_pages=2)
 
@@ -393,7 +415,9 @@ class TestSearchJobsGraphQL:
         with (
             patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
             patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=None)),
-            patch.object(extractor, "_extract_search_page", new=AsyncMock(return_value=fallback_extracted)),
+            patch.object(
+                extractor, "_extract_search_page", new=AsyncMock(return_value=fallback_extracted)
+            ),
             patch.object(extractor, "_extract_job_ids", new=AsyncMock(return_value=["111", "222"])),
         ):
             result = await extractor.search_jobs("engineer", max_pages=1)
@@ -407,7 +431,9 @@ class TestSearchJobsGraphQL:
 
         with (
             patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
-            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=gql_response)) as mock_gql,
+            patch.object(
+                extractor, "_fetch_graphql", new=AsyncMock(return_value=gql_response)
+            ) as mock_gql,
         ):
             await extractor.search_jobs(
                 "engineer",
@@ -439,7 +465,9 @@ class TestGetJobSearchFilters:
     def _gql_response(self):
         return {
             "jobTypes": [{"id": "3", "name": "Internship", "behaviorIdentifier": "INTERNSHIP"}],
-            "employmentTypes": [{"id": "1", "name": "Full-Time", "behaviorIdentifier": "FULL_TIME"}],
+            "employmentTypes": [
+                {"id": "1", "name": "Full-Time", "behaviorIdentifier": "FULL_TIME"}
+            ],
             "educationLevels": [{"id": "1", "name": "Bachelors"}],
             "salaryTypes": [{"id": "1", "name": "Paid"}],
             "paySchedules": [{"id": "1", "name": "Hourly Wage"}],
@@ -451,7 +479,9 @@ class TestGetJobSearchFilters:
     async def test_returns_structured_filter_dict(self, extractor):
         with (
             patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
-            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=self._gql_response())),
+            patch.object(
+                extractor, "_fetch_graphql", new=AsyncMock(return_value=self._gql_response())
+            ),
         ):
             result = await extractor.get_job_search_filters()
 
