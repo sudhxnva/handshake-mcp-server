@@ -33,36 +33,56 @@ All scraping tools return:
 - [uv](https://docs.astral.sh/uv/) package manager
 - A Handshake student account
 
-## Installation & Setup
+## Quick Start
 
-### 1. Install dependencies and browser
+```bash
+uvx handshake-scraper-mcp setup
+```
+
+The wizard asks whether you want Docker (recommended) or local mode, handles login, and prints the exact command to register the server with your MCP client.
+
+### Add to Claude
+
+After setup, run the command the wizard printed:
+
+```bash
+# Docker mode
+claude mcp add-json handshake '{"command":"uvx","args":["handshake-scraper-mcp","docker"]}'
+
+# Local mode
+claude mcp add-json handshake '{"command":"uvx","args":["handshake-scraper-mcp"]}'
+```
+
+Restart Claude. Done.
+
+---
+
+### Manual setup
+
+<details>
+<summary>Expand for manual / non-uvx setup</summary>
+
+#### 1. Install dependencies and browser
 
 ```bash
 uv sync
 uv run patchright install chromium
 ```
 
-### 2. Login (creates persistent browser profile)
+#### 2. Login
 
 ```bash
+# Local (opens a browser window)
 uv run -m handshake_mcp_server --login --no-headless
+
+# Docker (open http://localhost:6080/vnc.html in your browser)
+docker compose build
+docker compose run --rm -p 6080:6080 handshake-mcp --vnc-login
 ```
 
-A browser window will open. Complete the Handshake login (including SSO if needed). The session is saved to `~/.handshake-mcp/profile/` and reused automatically.
+#### 3. Configure your MCP client
 
-### 3. Start the server
-
-```bash
-# stdio (for Claude Desktop / MCP clients)
-uv run -m handshake_mcp_server
-
-# HTTP mode (for testing)
-uv run -m handshake_mcp_server --transport streamable-http --log-level DEBUG
-```
-
-## Claude Desktop Configuration
-
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+Add to your MCP client config:
 
 ```json
 {
@@ -74,6 +94,8 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
   }
 }
 ```
+
+For Docker, use `["handshake-scraper-mcp", "docker"]` as the args instead.
 
 Or using the local development version:
 
@@ -93,6 +115,8 @@ Or using the local development version:
   }
 }
 ```
+
+</details>
 
 ## Available Tools
 
