@@ -1,6 +1,7 @@
 """Core extraction engine for Handshake using innerText instead of DOM selectors."""
 
 import asyncio
+import base64
 import logging
 import re
 from dataclasses import dataclass
@@ -88,6 +89,296 @@ _NOISE_MARKERS: list[re.Pattern[str]] = [
 _NOISE_LINES: list[re.Pattern[str]] = [
     re.compile(r"^(?:Play|Pause|Playback speed|Turn fullscreen on|Fullscreen)$"),
 ]
+
+# GraphQL query constants — all live at module level, only extractor.py knows this endpoint
+JOB_DETAILS_QUERY = """
+query GetJobDetails($id: ID!) {
+  job(id: $id) {
+    id
+    title
+    description
+    hybrid
+    remote
+    onSite
+    startDate
+    endDate
+    expirationDate
+    createdAt
+    employer {
+      id
+      name
+      industry { name }
+    }
+    salaryType { behaviorIdentifier }
+    salaryRange {
+      min
+      max
+      paySchedule { behaviorIdentifier }
+    }
+    locations { city state }
+    jobType { behaviorIdentifier }
+    employmentType { behaviorIdentifier }
+    studentScreen {
+      workAuthRequired
+      acceptsOptCandidates
+      acceptsCptCandidates
+      willingToSponsorCandidate
+    }
+    jobApplySetting { externalUrl }
+  }
+}
+"""
+
+JOB_SEARCH_QUERY = """
+query JobSearch($first: Int!, $after: String!, $input: JobSearchInput!) {
+  jobSearch(first: $first, after: $after, input: $input) {
+    edges {
+      node {
+        job {
+          id
+          title
+          employer { name }
+          jobType { behaviorIdentifier }
+          employmentType { behaviorIdentifier }
+          salaryType { behaviorIdentifier }
+          salaryRange {
+            min
+            max
+            paySchedule { behaviorIdentifier }
+          }
+          locations { city state }
+        }
+      }
+    }
+  }
+}
+"""
+
+FILTERS_QUERY = """
+query JobSearchInitialFilterValues(
+  $includeJobTypes: Boolean!
+  $includeEmploymentTypes: Boolean!
+  $includeEducationLevels: Boolean!
+  $includeSalaryTypes: Boolean!
+  $includePaySchedules: Boolean!
+  $includeRemunerations: Boolean!
+  $includeIndustries: Boolean!
+  $includeJobRoleGroups: Boolean!
+) {
+  jobTypes @include(if: $includeJobTypes) {
+    id
+    name
+    behaviorIdentifier
+  }
+  employmentTypes @include(if: $includeEmploymentTypes) {
+    id
+    name
+    behaviorIdentifier
+  }
+  educationLevels @include(if: $includeEducationLevels) {
+    id
+    name
+  }
+  salaryTypes @include(if: $includeSalaryTypes) {
+    id
+    name
+  }
+  paySchedules @include(if: $includePaySchedules) {
+    id
+    name
+  }
+  remunerations @include(if: $includeRemunerations) {
+    id
+    name
+  }
+  industries @include(if: $includeIndustries) {
+    id
+    name
+  }
+  jobRoleGroups @include(if: $includeJobRoleGroups) {
+    id
+    name
+  }
+  currentUser {
+    institution {
+      curations {
+        nodes {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+"""
+
+_FILTERS_VARIABLES = {
+    "includeJobTypes": True,
+    "includeEmploymentTypes": True,
+    "includeEducationLevels": True,
+    "includeSalaryTypes": True,
+    "includePaySchedules": True,
+    "includeRemunerations": True,
+    "includeIndustries": True,
+    "includeJobRoleGroups": True,
+}
+
+# GraphQL sort mapping
+_GQL_SORT_MAP = {
+    "date": {"field": "POSTED_DATE", "direction": "DESC"},
+    "relevance": {"field": "RELEVANCE", "direction": "ASC"},
+}
+_GQL_SORT_DEFAULT = {"field": "RELEVANCE", "direction": "ASC"}
+
+_PAY_SCHEDULE_SUFFIX = {
+    "HOURLY_WAGE": "/hr",
+    "ANNUAL_SALARY": "/yr",
+    "MONTHLY_STIPEND": "/mo",
+}
+
+
+def _format_salary(
+    salary_type: dict | None,
+    salary_range: dict | None,
+    pay_schedule: dict | None,
+) -> str | None:
+    """Format GraphQL salary data into a human-readable string.
+
+    Salary range values are in cents (3000 → $30). Returns None if the
+    salary field should be omitted entirely.
+    """
+    if (salary_type or {}).get("behaviorIdentifier") == "UNPAID":
+        return "Unpaid"
+
+    if not salary_range:
+        return None
+
+    raw_min = salary_range.get("min") or 0
+    raw_max = salary_range.get("max") or 0
+
+    if not raw_min and not raw_max:
+        return None
+
+    min_val = raw_min // 100 if raw_min else 0
+    max_val = raw_max // 100 if raw_max else 0
+    suffix = _PAY_SCHEDULE_SUFFIX.get(
+        (pay_schedule or {}).get("behaviorIdentifier", ""), ""
+    )
+
+    if min_val and max_val:
+        if min_val == max_val:
+            return f"${min_val}{suffix}"
+        return f"${min_val}–{max_val}{suffix}"
+    elif max_val:
+        return f"Up to ${max_val}{suffix}"
+    else:
+        return f"${min_val}+{suffix}"
+
+
+def _search_cursor(page_num: int) -> str:
+    """Encode the GraphQL cursor for a given 1-indexed search page number."""
+    return base64.b64encode(str((page_num - 1) * _PAGE_SIZE).encode()).decode()
+
+
+def _build_job_metadata(job: dict) -> dict[str, Any]:
+    """Build a structured metadata dict from a GraphQL job response."""
+    meta: dict[str, Any] = {}
+
+    for src, dst in [("id", "id"), ("title", "title")]:
+        if val := job.get(src):
+            meta[dst] = val
+
+    employer = job.get("employer") or {}
+    if name := employer.get("name"):
+        meta["company"] = name
+    if emp_id := employer.get("id"):
+        meta["company_id"] = emp_id
+    if industry_name := (employer.get("industry") or {}).get("name"):
+        meta["industry"] = industry_name
+
+    if job.get("hybrid"):
+        meta["work_type"] = "hybrid"
+    elif job.get("remote"):
+        meta["work_type"] = "remote"
+    elif job.get("onSite"):
+        meta["work_type"] = "on_site"
+
+    salary_range = job.get("salaryRange")
+    pay_schedule = (salary_range or {}).get("paySchedule")
+    salary_str = _format_salary(job.get("salaryType"), salary_range, pay_schedule)
+    if salary_str is not None:
+        meta["salary"] = salary_str
+    if st := (job.get("salaryType") or {}).get("behaviorIdentifier"):
+        meta["salary_type"] = st
+
+    locations = [
+        f"{loc['city']}, {loc['state']}"
+        for loc in (job.get("locations") or [])
+        if loc.get("city") and loc.get("state")
+    ]
+    if locations:
+        meta["locations"] = locations
+
+    if jt := (job.get("jobType") or {}).get("behaviorIdentifier"):
+        meta["job_type"] = jt
+    if et := (job.get("employmentType") or {}).get("behaviorIdentifier"):
+        meta["employment_type"] = et
+
+    for src, dst in [
+        ("startDate", "start_date"),
+        ("endDate", "end_date"),
+        ("expirationDate", "deadline"),
+        ("createdAt", "posted_at"),
+    ]:
+        if val := job.get(src):
+            meta[dst] = val
+
+    screen = job.get("studentScreen") or {}
+    for src, dst in [
+        ("workAuthRequired", "work_auth_required"),
+        ("acceptsOptCandidates", "accepts_opt"),
+        ("acceptsCptCandidates", "accepts_cpt"),
+        ("willingToSponsorCandidate", "will_sponsor"),
+    ]:
+        if (val := screen.get(src)) is not None:
+            meta[dst] = val
+
+    if apply_url := (job.get("jobApplySetting") or {}).get("externalUrl"):
+        meta["apply_url"] = apply_url
+
+    return meta
+
+
+def _build_search_job_entry(job: dict) -> dict[str, Any]:
+    """Build a structured job summary dict from a GraphQL search result node."""
+    entry: dict[str, Any] = {}
+
+    for src, dst in [("id", "id"), ("title", "title")]:
+        if val := job.get(src):
+            entry[dst] = val
+
+    if name := (job.get("employer") or {}).get("name"):
+        entry["company"] = name
+    if jt := (job.get("jobType") or {}).get("behaviorIdentifier"):
+        entry["job_type"] = jt
+    if et := (job.get("employmentType") or {}).get("behaviorIdentifier"):
+        entry["employment_type"] = et
+
+    salary_range = job.get("salaryRange")
+    pay_schedule = (salary_range or {}).get("paySchedule")
+    salary_str = _format_salary(job.get("salaryType"), salary_range, pay_schedule)
+    if salary_str is not None:
+        entry["salary"] = salary_str
+
+    locations = [
+        f"{loc['city']}, {loc['state']}"
+        for loc in (job.get("locations") or [])
+        if loc.get("city") and loc.get("state")
+    ]
+    if locations:
+        entry["locations"] = locations
+
+    return entry
 
 
 @dataclass
