@@ -360,11 +360,48 @@ class HandshakeExtractor:
             result["section_errors"] = section_errors
         return result
 
+    async def _extract_job_metadata(self) -> dict[str, Any]:
+        """Extract structured metadata from a loaded job posting page.
+
+        Uses only semantic selectors (h1, href patterns) to stay resilient
+        against Handshake's React SPA layout changes.
+        """
+        return await self._page.evaluate(
+            """() => {
+                const main = document.querySelector('main');
+                if (!main) return {};
+
+                // Title: first <h1> inside main
+                const title = main.querySelector('h1')?.innerText?.trim() || '';
+
+                // Company: first employer profile link (/e/{id})
+                const companyAnchor = main.querySelector('a[href*="/e/"]');
+                const company = companyAnchor?.innerText?.trim() || '';
+                const companyHref = companyAnchor?.getAttribute('href') || '';
+                const companyIdMatch = companyHref.match(/\\/e\\/(\\d+)/);
+                const company_id = companyIdMatch ? companyIdMatch[1] : '';
+
+                // Job link: canonical /jobs/{id} href
+                const jobHref = window.location.href;
+                const jobIdMatch = jobHref.match(/\\/jobs\\/(\\d+)/);
+                const job_id = jobIdMatch ? jobIdMatch[1] : '';
+
+                // Apply link: look for an anchor with "apply" in text near the top of main
+                const allAnchors = Array.from(main.querySelectorAll('a[href]'));
+                const applyAnchor = allAnchors.find(
+                    a => /^apply(\\s+now)?$/i.test((a.innerText || a.textContent || '').trim())
+                );
+                const apply_url = applyAnchor?.href || '';
+
+                return { title, company, company_id, job_id, apply_url };
+            }"""
+        )
+
     async def scrape_job(self, job_id: str) -> dict[str, Any]:
         """Scrape a single job posting.
 
         Returns:
-            {url, sections: {name: text}}
+            {url, sections: {name: text}, metadata: {title, company, ...}}
         """
         url = f"{BASE_URL}/jobs/{job_id}"
         extracted = await self.extract_page(url, section_name="job_posting")
@@ -379,10 +416,21 @@ class HandshakeExtractor:
         elif extracted.error:
             section_errors["job_posting"] = extracted.error
 
+        # Extract structured metadata while still on the job page
+        metadata: dict[str, Any] = {}
+        if sections:
+            try:
+                raw_meta = await self._extract_job_metadata()
+                metadata = {k: v for k, v in raw_meta.items() if v}
+            except Exception as e:
+                logger.debug("Could not extract job metadata: %s", e)
+
         result: dict[str, Any] = {
             "url": url,
             "sections": sections,
         }
+        if metadata:
+            result["metadata"] = metadata
         if references:
             result["references"] = references
         if section_errors:

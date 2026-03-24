@@ -17,12 +17,15 @@ All scraping tools return:
 {
   "url": "string",
   "sections": { "section_name": "raw text content" },
+  "metadata": { "title": "...", "company": "...", "company_id": "...", "apply_url": "..." },
   "references": { "section_name": [{ "kind": "job", "url": "/stu/jobs/123", "text": "..." }] },
   "section_errors": { "section_name": { "error_type": "...", "error_message": "..." } },
   "unknown_sections": ["invalid_section_name"],
   "job_ids": ["123", "456"]
 }
 ```
+
+`metadata` is only present on `get_job_details` responses and contains structured fields extracted from semantic HTML (`h1` for title, employer link for company). The full job posting text is always in `sections.job_posting`.
 
 ## Prerequisites
 
@@ -111,6 +114,16 @@ Or using the local development version:
 ### Session
 - `close_session()` — Close the browser session and free resources
 
+## Browser Lifecycle
+
+The server keeps a single browser instance open for its entire lifetime — it does **not** close the browser after each tool call. This is intentional: reusing the same Chromium context avoids re-authentication overhead and makes subsequent calls much faster.
+
+- **macOS / `--no-headless`**: A browser window stays visible for the duration of the server session. This is normal.
+- **Docker / `--virtual-display`**: The browser runs inside an Xvfb virtual framebuffer — no visible window.
+- **Explicit close**: Call the `close_session()` MCP tool to close the browser and free resources without stopping the server process.
+
+The browser closes automatically when the server process exits (e.g., Claude Desktop shuts down).
+
 ## CLI Options
 
 ```
@@ -129,15 +142,22 @@ uv run -m handshake_mcp_server --help
 ## Docker
 
 ```bash
-# Build
-docker build -t handshake-mcp-server .
+# 1. Build the image
+docker compose build
 
-# Login (creates profile on host first)
-uv run -m handshake_mcp_server --login --no-headless
+# 2. One-time login — open http://localhost:6080/vnc.html and log into Handshake
+docker compose run --rm -p 6080:6080 handshake-mcp --vnc-login
 
-# Run with mounted profile
-docker run -v ~/.handshake-mcp:/home/pwuser/.handshake-mcp handshake-mcp-server
+# 3. Start the MCP server (HTTP on port 8000)
+docker compose up -d
+
+# Useful helpers
+docker compose logs -f                              # tail server logs
+docker compose run --rm handshake-mcp --status      # check session validity
+docker compose down                                 # stop the server
 ```
+
+The browser profile (cookies/session) is stored in a named Docker volume (`handshake-profile`) and persists across container restarts.
 
 ## Development
 

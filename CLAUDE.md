@@ -85,6 +85,7 @@ Always verify URLs against live Handshake before adding new sections. The SPA ca
 All scraping tools return: `{url, sections: {name: raw_text}}`.
 
 Optional additional keys:
+- `metadata: {title, company, company_id, job_id, apply_url}` (get_job_details only) — structured fields extracted from semantic HTML
 - `references: {section_name: [{kind, url, text?, context?}]}` — Handshake URLs are relative paths
 - `section_errors: {section_name: {error_type, error_message}}`
 - `unknown_sections: [name, ...]`

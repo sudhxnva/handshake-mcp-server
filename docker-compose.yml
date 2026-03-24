@@ -1,0 +1,12 @@
+services:
+  handshake-mcp:
+    build: .
+    image: handshake-mcp-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - handshake-profile:/home/pwuser/.handshake-mcp
+    restart: unless-stopped
+
+volumes:
+  handshake-profile:
