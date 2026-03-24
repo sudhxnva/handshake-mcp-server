@@ -263,7 +263,9 @@ def _docker_clean_and_exit() -> None:
     # Stop and remove any containers still holding the volume before deleting it.
     containers = subprocess.run(
         ["docker", "ps", "-a", "-q", "--filter", "volume=handshake-profile"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     ).stdout.strip()
     if containers:
         subprocess.run(["docker", "rm", "-f"] + containers.splitlines(), check=False)
