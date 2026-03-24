@@ -129,6 +129,48 @@ class HandshakeExtractor:
     def __init__(self, page: Page):
         self._page = page
 
+    async def _fetch_graphql(self, query: str, variables: dict) -> dict | None:
+        """Execute a GraphQL query via fetch() in the browser page context.
+
+        Uses the browser's existing session cookies — no CSRF token needed.
+        Returns the data dict on success, None on any failure.
+        """
+        clean_vars = {k: v for k, v in variables.items() if v is not None}
+        try:
+            return await self._page.evaluate(
+                """async ({ query, variables }) => {
+                    const response = await fetch('/hs/graphql', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: JSON.stringify({ query, variables }),
+                    });
+                    if (!response.ok) return null;
+                    const json = await response.json();
+                    if (json.errors) return null;
+                    return json.data || null;
+                }""",
+                {"query": query, "variables": clean_vars},
+            )
+        except Exception as e:
+            logger.debug("GraphQL fetch failed: %s", e)
+            return None
+
+    async def _html_to_text(self, html: str) -> str:
+        """Convert HTML to plain text using the browser's innerText rendering."""
+        if not html:
+            return ""
+        return await self._page.evaluate(
+            """(html) => {
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                return div.innerText || '';
+            }""",
+            html,
+        )
+
     async def _raise_if_auth_barrier(
         self,
         url: str,
