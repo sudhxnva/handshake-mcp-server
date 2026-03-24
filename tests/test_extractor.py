@@ -433,3 +433,46 @@ class TestSearchJobsGraphQL:
         assert len(result["job_ids"]) == 25
         assert len(result["jobs"]) == 25
         assert result["sections"]  # search_results text was built from page 1
+
+
+class TestGetJobSearchFilters:
+    def _gql_response(self):
+        return {
+            "jobTypes": [{"id": "3", "name": "Internship", "behaviorIdentifier": "INTERNSHIP"}],
+            "employmentTypes": [{"id": "1", "name": "Full-Time", "behaviorIdentifier": "FULL_TIME"}],
+            "educationLevels": [{"id": "1", "name": "Bachelors"}],
+            "salaryTypes": [{"id": "1", "name": "Paid"}],
+            "paySchedules": [{"id": "1", "name": "Hourly Wage"}],
+            "remunerations": [{"id": "6", "name": "Medical"}],
+            "industries": [{"id": "1034", "name": "Internet & Software"}],
+            "jobRoleGroups": [{"id": "64", "name": "Software Developers and Engineers"}],
+            "currentUser": {
+                "institution": {
+                    "curations": {
+                        "nodes": [{"id": "20902", "name": "On-Campus Student Employment"}]
+                    }
+                }
+            },
+        }
+
+    async def test_returns_structured_filter_dict(self, extractor):
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=self._gql_response())),
+        ):
+            result = await extractor.get_job_search_filters()
+
+        assert result["job_types"] == [{"id": "3", "name": "Internship", "slug": "INTERNSHIP"}]
+        assert result["employment_types"] == [{"id": "1", "name": "Full-Time", "slug": "FULL_TIME"}]
+        assert result["education_levels"] == [{"id": "1", "name": "Bachelors"}]
+        assert result["collections"] == [{"id": "20902", "name": "On-Campus Student Employment"}]
+        assert result["industries"] == [{"id": "1034", "name": "Internet & Software"}]
+
+    async def test_returns_empty_dict_on_graphql_failure(self, extractor):
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=None)),
+        ):
+            result = await extractor.get_job_search_filters()
+
+        assert result == {}

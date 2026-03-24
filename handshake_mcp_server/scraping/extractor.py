@@ -1355,4 +1355,50 @@ class HandshakeExtractor:
             }""",
             {"selectors": selectors},
         )
-        return result
+
+    async def get_job_search_filters(self) -> dict[str, Any]:
+        """Return all available job search filter options for the current user.
+
+        Navigates to /job-search to establish session context, then queries
+        the GraphQL API for all filter options.
+
+        Returns:
+            Dict with keys: job_types, employment_types, education_levels,
+            salary_types, pay_schedules, remunerations, collections,
+            industries, job_role_groups.
+            Returns empty dict on failure.
+        """
+        url = f"{BASE_URL}/job-search"
+        await self._goto_with_auth_checks(url)
+
+        data = await self._fetch_graphql(FILTERS_QUERY, _FILTERS_VARIABLES)
+        if data is None:
+            logger.debug("GraphQL failed for get_job_search_filters")
+            return {}
+
+        def _extract(items: list[dict] | None, include_slug: bool = False) -> list[dict]:
+            result = []
+            for item in (items or []):
+                entry: dict[str, Any] = {"id": str(item["id"]), "name": item["name"]}
+                if include_slug and "behaviorIdentifier" in item:
+                    entry["slug"] = item["behaviorIdentifier"]
+                result.append(entry)
+            return result
+
+        curations = (
+            ((data.get("currentUser") or {}).get("institution") or {})
+            .get("curations", {})
+            .get("nodes", [])
+        )
+
+        return {
+            "job_types": _extract(data.get("jobTypes"), include_slug=True),
+            "employment_types": _extract(data.get("employmentTypes"), include_slug=True),
+            "education_levels": _extract(data.get("educationLevels")),
+            "salary_types": _extract(data.get("salaryTypes")),
+            "pay_schedules": _extract(data.get("paySchedules")),
+            "remunerations": _extract(data.get("remunerations")),
+            "collections": _extract(curations),
+            "industries": _extract(data.get("industries")),
+            "job_role_groups": _extract(data.get("jobRoleGroups")),
+        }
