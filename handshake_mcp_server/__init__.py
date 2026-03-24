@@ -3,6 +3,6 @@
 from importlib.metadata import PackageNotFoundError, version
 
 try:
-    __version__ = version("handshake-scraper-mcp")
+    __version__ = version("handshake-mcp-server")
 except PackageNotFoundError:
     __version__ = "0.0.0"

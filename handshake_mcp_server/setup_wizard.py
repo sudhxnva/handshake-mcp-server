@@ -17,10 +17,10 @@ console = Console()
 _MCP_COMMANDS: dict[str, str] = {
     "docker": (
         "claude mcp add-json handshake "
-        '\'{"command":"uvx","args":["handshake-scraper-mcp","docker"]}\''
+        '\'{"command":"uvx","args":["handshake-mcp-server","docker"]}\''
     ),
     "local": (
-        'claude mcp add-json handshake \'{"command":"uvx","args":["handshake-scraper-mcp"]}\''
+        'claude mcp add-json handshake \'{"command":"uvx","args":["handshake-mcp-server"]}\''
     ),
 }
 

@@ -254,7 +254,7 @@ def _docker_and_exit() -> None:
     """Replace current process with docker run using stdio transport.
 
     This is the MCP server entry point for Docker-based setups.
-    The IDE calls: uvx handshake-scraper-mcp docker
+    The IDE calls: uvx handshake-mcp-server docker
     Which runs this function, which exec's into the container.
     """
     import os

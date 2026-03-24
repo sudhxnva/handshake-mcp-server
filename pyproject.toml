@@ -1,5 +1,5 @@
 [project]
-name = "handshake-scraper-mcp"
+name = "handshake-mcp-server"
 version = "0.1.0"
 description = "MCP server for scraping Handshake (joinhandshake.com) — student profiles, employers, jobs, and events"
 readme = "README.md"
@@ -16,7 +16,6 @@ dependencies = [
 
 [project.scripts]
 handshake-mcp-server = "handshake_mcp_server.cli_main:main"
-handshake-scraper-mcp = "handshake_mcp_server.cli_main:main"
 
 [dependency-groups]
 dev = [

@@ -36,7 +36,7 @@ All scraping tools return:
 ## Quick Start
 
 ```bash
-uvx handshake-scraper-mcp setup
+uvx handshake-mcp-server setup
 ```
 
 The wizard asks whether you want Docker (recommended) or local mode, handles login, and prints the exact command to register the server with your MCP client.
@@ -47,10 +47,10 @@ After setup, run the command the wizard printed:
 
 ```bash
 # Docker mode
-claude mcp add-json handshake '{"command":"uvx","args":["handshake-scraper-mcp","docker"]}'
+claude mcp add-json handshake '{"command":"uvx","args":["handshake-mcp-server","docker"]}'
 
 # Local mode
-claude mcp add-json handshake '{"command":"uvx","args":["handshake-scraper-mcp"]}'
+claude mcp add-json handshake '{"command":"uvx","args":["handshake-mcp-server"]}'
 ```
 
 Restart Claude. Done.
@@ -89,13 +89,13 @@ Add to your MCP client config:
   "mcpServers": {
     "handshake": {
       "command": "uvx",
-      "args": ["handshake-scraper-mcp"]
+      "args": ["handshake-mcp-server"]
     }
   }
 }
 ```
 
-For Docker, use `["handshake-scraper-mcp", "docker"]` as the args instead.
+For Docker, use `["handshake-mcp-server", "docker"]` as the args instead.
 
 Or using the local development version:
 
