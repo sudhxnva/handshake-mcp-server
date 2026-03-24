@@ -1,6 +1,7 @@
 """Core extraction engine for Handshake using innerText instead of DOM selectors."""
 
 import asyncio
+import base64
 import logging
 import re
 from dataclasses import dataclass
@@ -46,24 +47,6 @@ _RATE_LIMITED_MSG = (
 # Handshake shows 25 results per page
 _PAGE_SIZE = 25
 
-# Sort options for job search
-_SORT_BY_MAP = {"date": "posted_date_desc", "relevance": "relevance"}
-
-# Job type filter values (Handshake uses string slugs)
-_JOB_TYPE_MAP = {
-    "full_time": "full_time",
-    "part_time": "part_time",
-    "internship": "internship",
-    "on_campus": "on_campus",
-}
-
-# Work location filter values
-_WORK_LOCATION_MAP = {
-    "on_site": "on_site",
-    "remote": "remote",
-    "hybrid": "hybrid",
-}
-
 # Noise patterns that indicate Handshake footer/sidebar chrome.
 # Everything from the earliest match onwards is stripped.
 _NOISE_MARKERS: list[re.Pattern[str]] = [
@@ -88,6 +71,284 @@ _NOISE_MARKERS: list[re.Pattern[str]] = [
 _NOISE_LINES: list[re.Pattern[str]] = [
     re.compile(r"^(?:Play|Pause|Playback speed|Turn fullscreen on|Fullscreen)$"),
 ]
+
+# GraphQL query constants — all live at module level, only extractor.py knows this endpoint
+JOB_DETAILS_QUERY = """
+query GetJobDetails($id: ID!) {
+  job(id: $id) {
+    id
+    title
+    description
+    hybrid
+    remote
+    onSite
+    startDate
+    endDate
+    expirationDate
+    createdAt
+    employer {
+      id
+      name
+      industry { name }
+    }
+    salaryType { behaviorIdentifier }
+    salaryRange {
+      min
+      max
+      paySchedule { behaviorIdentifier }
+    }
+    locations { city state }
+    jobType { behaviorIdentifier }
+    employmentType { behaviorIdentifier }
+    studentScreen {
+      workAuthRequired
+      acceptsOptCandidates
+      acceptsCptCandidates
+      willingToSponsorCandidate
+    }
+    jobApplySetting { externalUrl }
+  }
+}
+"""
+
+JOB_SEARCH_QUERY = """
+query JobSearch($first: Int!, $after: String!, $input: JobSearchInput!) {
+  jobSearch(first: $first, after: $after, input: $input) {
+    edges {
+      node {
+        job {
+          id
+          title
+          employer { name }
+          jobType { behaviorIdentifier }
+          employmentType { behaviorIdentifier }
+          salaryType { behaviorIdentifier }
+          salaryRange {
+            min
+            max
+            paySchedule { behaviorIdentifier }
+          }
+          locations { city state }
+        }
+      }
+    }
+  }
+}
+"""
+
+FILTERS_QUERY = """
+query JobSearchInitialFilterValues(
+  $includeJobTypes: Boolean!
+  $includeEmploymentTypes: Boolean!
+  $includeEducationLevels: Boolean!
+  $includeSalaryTypes: Boolean!
+  $includePaySchedules: Boolean!
+  $includeRemunerations: Boolean!
+  $includeIndustries: Boolean!
+  $includeJobRoleGroups: Boolean!
+) {
+  jobTypes @include(if: $includeJobTypes) {
+    id
+    name
+    behaviorIdentifier
+  }
+  employmentTypes @include(if: $includeEmploymentTypes) {
+    id
+    name
+    behaviorIdentifier
+  }
+  educationLevels @include(if: $includeEducationLevels) {
+    id
+    name
+  }
+  salaryTypes @include(if: $includeSalaryTypes) {
+    id
+    name
+  }
+  paySchedules @include(if: $includePaySchedules) {
+    id
+    name
+  }
+  remunerations @include(if: $includeRemunerations) {
+    id
+    name
+  }
+  industries @include(if: $includeIndustries) {
+    id
+    name
+  }
+  jobRoleGroups @include(if: $includeJobRoleGroups) {
+    id
+    name
+  }
+}
+"""
+
+_FILTERS_VARIABLES = {
+    "includeJobTypes": True,
+    "includeEmploymentTypes": True,
+    "includeEducationLevels": True,
+    "includeSalaryTypes": True,
+    "includePaySchedules": True,
+    "includeRemunerations": True,
+    "includeIndustries": True,
+    "includeJobRoleGroups": True,
+}
+
+# GraphQL sort mapping
+_GQL_SORT_MAP = {
+    "date": {"field": "POSTED_DATE", "direction": "DESC"},
+    "relevance": {"field": "RELEVANCE", "direction": "ASC"},
+}
+_GQL_SORT_DEFAULT = {"field": "RELEVANCE", "direction": "ASC"}
+
+_PAY_SCHEDULE_SUFFIX = {
+    "HOURLY_WAGE": "/hr",
+    "ANNUAL_SALARY": "/yr",
+    "MONTHLY_STIPEND": "/mo",
+}
+
+
+def _format_salary(
+    salary_type: dict | None,
+    salary_range: dict | None,
+    pay_schedule: dict | None,
+) -> str | None:
+    """Format GraphQL salary data into a human-readable string.
+
+    Salary range values are in cents (3000 → $30). Returns None if the
+    salary field should be omitted entirely.
+    """
+    if (salary_type or {}).get("behaviorIdentifier") == "UNPAID":
+        return "Unpaid"
+
+    if not salary_range:
+        return None
+
+    raw_min = salary_range.get("min") or 0
+    raw_max = salary_range.get("max") or 0
+
+    if not raw_min and not raw_max:
+        return None
+
+    min_val = raw_min // 100 if raw_min else 0
+    max_val = raw_max // 100 if raw_max else 0
+    suffix = _PAY_SCHEDULE_SUFFIX.get((pay_schedule or {}).get("behaviorIdentifier", ""), "")
+
+    if min_val and max_val:
+        if min_val == max_val:
+            return f"${min_val}{suffix}"
+        return f"${min_val}–{max_val}{suffix}"
+    elif max_val:
+        return f"Up to ${max_val}{suffix}"
+    else:
+        return f"${min_val}+{suffix}"
+
+
+def _search_cursor(page_num: int) -> str:
+    """Encode the GraphQL cursor for a given 1-indexed search page number."""
+    return base64.b64encode(str((page_num - 1) * _PAGE_SIZE).encode()).decode()
+
+
+def _build_job_metadata(job: dict) -> dict[str, Any]:
+    """Build a structured metadata dict from a GraphQL job response."""
+    meta: dict[str, Any] = {}
+
+    for src, dst in [("id", "id"), ("title", "title")]:
+        if val := job.get(src):
+            meta[dst] = val
+
+    employer = job.get("employer") or {}
+    if name := employer.get("name"):
+        meta["company"] = name
+    if emp_id := employer.get("id"):
+        meta["company_id"] = emp_id
+    if industry_name := (employer.get("industry") or {}).get("name"):
+        meta["industry"] = industry_name
+
+    if job.get("hybrid"):
+        meta["work_type"] = "hybrid"
+    elif job.get("remote"):
+        meta["work_type"] = "remote"
+    elif job.get("onSite"):
+        meta["work_type"] = "on_site"
+
+    salary_range = job.get("salaryRange")
+    pay_schedule = (salary_range or {}).get("paySchedule")
+    salary_str = _format_salary(job.get("salaryType"), salary_range, pay_schedule)
+    if salary_str is not None:
+        meta["salary"] = salary_str
+        if st := (job.get("salaryType") or {}).get("behaviorIdentifier"):
+            meta["salary_type"] = st
+
+    locations = [
+        f"{loc['city']}, {loc['state']}"
+        for loc in (job.get("locations") or [])
+        if loc.get("city") and loc.get("state")
+    ]
+    if locations:
+        meta["locations"] = locations
+
+    if jt := (job.get("jobType") or {}).get("behaviorIdentifier"):
+        meta["job_type"] = jt
+    if et := (job.get("employmentType") or {}).get("behaviorIdentifier"):
+        meta["employment_type"] = et
+
+    for src, dst in [
+        ("startDate", "start_date"),
+        ("endDate", "end_date"),
+        ("expirationDate", "deadline"),
+        ("createdAt", "posted_at"),
+    ]:
+        if val := job.get(src):
+            meta[dst] = val
+
+    screen = job.get("studentScreen") or {}
+    for src, dst in [
+        ("workAuthRequired", "work_auth_required"),
+        ("acceptsOptCandidates", "accepts_opt"),
+        ("acceptsCptCandidates", "accepts_cpt"),
+        ("willingToSponsorCandidate", "will_sponsor"),
+    ]:
+        if (val := screen.get(src)) is not None:
+            meta[dst] = val
+
+    if apply_url := (job.get("jobApplySetting") or {}).get("externalUrl"):
+        meta["apply_url"] = apply_url
+
+    return meta
+
+
+def _build_search_job_entry(job: dict) -> dict[str, Any]:
+    """Build a structured job summary dict from a GraphQL search result node."""
+    entry: dict[str, Any] = {}
+
+    for src, dst in [("id", "id"), ("title", "title")]:
+        if val := job.get(src):
+            entry[dst] = val
+
+    if name := (job.get("employer") or {}).get("name"):
+        entry["company"] = name
+    if jt := (job.get("jobType") or {}).get("behaviorIdentifier"):
+        entry["job_type"] = jt
+    if et := (job.get("employmentType") or {}).get("behaviorIdentifier"):
+        entry["employment_type"] = et
+
+    salary_range = job.get("salaryRange")
+    pay_schedule = (salary_range or {}).get("paySchedule")
+    salary_str = _format_salary(job.get("salaryType"), salary_range, pay_schedule)
+    if salary_str is not None:
+        entry["salary"] = salary_str
+
+    locations = [
+        f"{loc['city']}, {loc['state']}"
+        for loc in (job.get("locations") or [])
+        if loc.get("city") and loc.get("state")
+    ]
+    if locations:
+        entry["locations"] = locations
+
+    return entry
 
 
 @dataclass
@@ -128,6 +389,48 @@ class HandshakeExtractor:
 
     def __init__(self, page: Page):
         self._page = page
+
+    async def _fetch_graphql(self, query: str, variables: dict) -> dict | None:
+        """Execute a GraphQL query via fetch() in the browser page context.
+
+        Uses the browser's existing session cookies — no CSRF token needed.
+        Returns the data dict on success, None on any failure.
+        """
+        clean_vars = {k: v for k, v in variables.items() if v is not None}
+        try:
+            return await self._page.evaluate(
+                """async ({ query, variables }) => {
+                    const response = await fetch('/hs/graphql', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: JSON.stringify({ query, variables }),
+                    });
+                    if (!response.ok) return null;
+                    const json = await response.json();
+                    if (json.errors) return null;
+                    return json.data || null;
+                }""",
+                {"query": query, "variables": clean_vars},
+            )
+        except Exception as e:
+            logger.debug("GraphQL fetch failed: %s", e)
+            return None
+
+    async def _html_to_text(self, html: str) -> str:
+        """Convert HTML to plain text using the browser's innerText rendering."""
+        if not html:
+            return ""
+        return await self._page.evaluate(
+            """(html) => {
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                return div.innerText || '';
+            }""",
+            html,
+        )
 
     async def _raise_if_auth_barrier(
         self,
@@ -402,15 +705,42 @@ class HandshakeExtractor:
     async def scrape_job(self, job_id: str) -> dict[str, Any]:
         """Scrape a single job posting.
 
+        Tries Handshake's internal GraphQL API first for rich structured data.
+        Falls back to innerText scraping if GraphQL fails.
+
         Returns:
-            {url, sections: {name: text}, metadata: {title, company, ...}}
+            {url, sections: {job_posting: text}, metadata: {...}}
+            GraphQL path: metadata has full structured fields, no references key.
+            Fallback path: metadata has basic fields, references key present if found.
         """
         url = f"{BASE_URL}/jobs/{job_id}"
+
+        # Always navigate and scrape — provides session context for GraphQL
+        # and fallback data if GraphQL fails.
         extracted = await self.extract_page(url, section_name="job_posting")
 
+        # Attempt GraphQL path
+        data = await self._fetch_graphql(JOB_DETAILS_QUERY, {"id": job_id})
+        if data is not None:
+            job = data.get("job")
+            if job is None:
+                raise HandshakeScraperException(
+                    f"Job {job_id} not found on Handshake. "
+                    "Verify the ID is correct and the job is still active."
+                )
+            description_text = await self._html_to_text(job.get("description") or "")
+            return {
+                "url": url,
+                "sections": {"job_posting": description_text},
+                "metadata": _build_job_metadata(job),
+            }
+
+        # Fallback: use the already-scraped innerText content
+        logger.debug("GraphQL failed for job %s, using scraped content", job_id)
         sections: dict[str, str] = {}
         references: dict[str, list[Reference]] = {}
         section_errors: dict[str, dict[str, Any]] = {}
+
         if extracted.text and extracted.text != _RATE_LIMITED_MSG:
             sections["job_posting"] = extracted.text
             if extracted.references:
@@ -418,7 +748,6 @@ class HandshakeExtractor:
         elif extracted.error:
             section_errors["job_posting"] = extracted.error
 
-        # Extract structured metadata while still on the job page
         metadata: dict[str, Any] = {}
         if sections:
             try:
@@ -427,10 +756,7 @@ class HandshakeExtractor:
             except Exception as e:
                 logger.debug("Could not extract job metadata: %s", e)
 
-        result: dict[str, Any] = {
-            "url": url,
-            "sections": sections,
-        }
+        result: dict[str, Any] = {"url": url, "sections": sections}
         if metadata:
             result["metadata"] = metadata
         if references:
@@ -523,61 +849,131 @@ class HandshakeExtractor:
         )
 
     @staticmethod
-    def _build_job_search_url(
-        keywords: str,
-        location: str | None = None,
-        job_type: str | None = None,
-        employment_type: str | None = None,
-        sort_by: str | None = None,
-        page: int = 1,
-        per_page: int = _PAGE_SIZE,
-    ) -> str:
-        """Build a Handshake job search URL with optional filters."""
-        params = f"query={quote_plus(keywords)}&page={page}&per_page={per_page}"
+    def _build_job_search_url(keywords: str, location: str | None = None) -> str:
+        """Build a Handshake job search URL for session navigation."""
+        params = f"query={quote_plus(keywords)}"
         if location:
             params += f"&location={quote_plus(location)}"
-        if job_type:
-            mapped = _JOB_TYPE_MAP.get(job_type.strip(), job_type)
-            params += f"&job_type={quote_plus(mapped)}"
-        if employment_type:
-            mapped = _WORK_LOCATION_MAP.get(employment_type.strip(), employment_type)
-            params += f"&employment_type={quote_plus(mapped)}"
-        if sort_by:
-            mapped = _SORT_BY_MAP.get(sort_by.strip(), sort_by)
-            params += f"&sort_direction={quote_plus(mapped)}"
         return f"{BASE_URL}/job-search?{params}"
 
     async def search_jobs(
         self,
         keywords: str,
+        job_type_ids: list[str] | None = None,
+        employment_type_ids: list[str] | None = None,
+        education_level_ids: list[str] | None = None,
+        collection_ids: list[str] | None = None,
+        industry_ids: list[str] | None = None,
+        job_role_group_ids: list[str] | None = None,
+        remuneration_ids: list[str] | None = None,
+        salary_type_ids: list[str] | None = None,
         location: str | None = None,
-        job_type: str | None = None,
-        employment_type: str | None = None,
         sort_by: str | None = None,
         max_pages: int = 3,
     ) -> dict[str, Any]:
-        """Search for jobs with pagination and job ID extraction.
+        """Search for jobs with pagination, job ID extraction, and structured results.
+
+        Use get_job_search_filters first to discover valid IDs for all *_ids params.
+        Work location (remote/hybrid/on_site) filtering is not supported — the
+        GraphQL filter key could not be confirmed.
 
         Args:
-            keywords: Search keywords
-            location: Optional location filter
-            job_type: Filter by job type (full_time, part_time, internship, on_campus)
-            employment_type: Filter by work location (on_site, remote, hybrid)
-            sort_by: Sort results (date, relevance)
-            max_pages: Maximum pages to load (1-10, default 3)
+            keywords: Search keywords (e.g., "software engineer")
+            job_type_ids: Filter by job type ID(s) (e.g., ["3"] for Internship)
+            employment_type_ids: Filter by employment type ID(s) (e.g., ["1"] for Full-Time)
+            education_level_ids: Filter by education level ID(s)
+            collection_ids: School-specific curation ID(s) (e.g., on-campus employment)
+            industry_ids: Filter by industry ID(s)
+            job_role_group_ids: Filter by job role group ID(s)
+            remuneration_ids: Filter by benefits/remuneration ID(s)
+            salary_type_ids: Filter by salary type ID(s) (e.g., ["1"] for Paid)
+            location: Best-effort location hint appended to the URL query string
+            sort_by: "relevance" (default) or "date"
+            max_pages: Maximum pages to fetch (1-10, default 3, 25 results per page)
 
         Returns:
-            {url, sections: {search_results: text}, job_ids: [str]}
+            {url, sections: {search_results: text}, job_ids: [str], jobs: [dict]}
         """
-        base_url = self._build_job_search_url(
-            keywords,
-            location=location,
-            job_type=job_type,
-            employment_type=employment_type,
-            sort_by=sort_by,
-            page=1,
+        base_url = self._build_job_search_url(keywords, location=location)
+
+        # Navigate to establish session context for GraphQL
+        await self._goto_with_auth_checks(base_url)
+
+        # Build GraphQL filter — omit None lists
+        gql_filter: dict[str, Any] = {"query": keywords}
+        if job_type_ids:
+            gql_filter["jobTypeIds"] = job_type_ids
+        if employment_type_ids:
+            gql_filter["employmentTypeIds"] = employment_type_ids
+        if education_level_ids:
+            gql_filter["educationLevelIds"] = education_level_ids
+        if collection_ids:
+            gql_filter["curationIds"] = collection_ids
+        if industry_ids:
+            gql_filter["industryIds"] = industry_ids
+        if job_role_group_ids:
+            gql_filter["jobRoleGroupIds"] = job_role_group_ids
+        if remuneration_ids:
+            gql_filter["remunerationIds"] = remuneration_ids
+        if salary_type_ids:
+            gql_filter["salaryTypeIds"] = salary_type_ids
+
+        gql_sort = _GQL_SORT_MAP.get(sort_by or "", _GQL_SORT_DEFAULT)
+
+        all_job_ids: list[str] = []
+        all_jobs: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for page_num in range(1, max_pages + 1):
+            variables = {
+                "first": _PAGE_SIZE,
+                "after": _search_cursor(page_num),
+                "input": {"filter": gql_filter, "sort": gql_sort},
+            }
+            data = await self._fetch_graphql(JOB_SEARCH_QUERY, variables)
+
+            if data is None:
+                if page_num == 1:
+                    # GraphQL failed on page 1 — fall back to scraping
+                    logger.debug("GraphQL failed for search, falling back to scraping")
+                    return await self._search_jobs_fallback(base_url, keywords, location, max_pages)
+                # Pages 2+: stop pagination silently, return what we have
+                break
+
+            edges = (data.get("jobSearch") or {}).get("edges") or []
+            for edge in edges:
+                job = (edge.get("node") or {}).get("job") or {}
+                job_id = job.get("id")
+                if job_id and job_id not in seen_ids:
+                    seen_ids.add(job_id)
+                    all_job_ids.append(job_id)
+                    all_jobs.append(_build_search_job_entry(job))
+
+            if len(edges) < _PAGE_SIZE:
+                break  # Last page
+
+        search_text = "\n".join(
+            f"{j.get('company', '')} — {j.get('title', '')} · "
+            f"{j.get('salary', '')} · {j.get('job_type', '')} · "
+            f"{', '.join(j.get('locations', []))}"
+            for j in all_jobs
         )
 
+        return {
+            "url": base_url,
+            "sections": {"search_results": search_text} if search_text else {},
+            "job_ids": all_job_ids,
+            "jobs": all_jobs,
+        }
+
+    async def _search_jobs_fallback(
+        self,
+        base_url: str,
+        keywords: str,
+        location: str | None,
+        max_pages: int,
+    ) -> dict[str, Any]:
+        """Inner fallback: scrape job search pages as innerText."""
         all_job_ids: list[str] = []
         seen_ids: set[str] = set()
         page_texts: list[str] = []
@@ -588,14 +984,9 @@ class HandshakeExtractor:
             if page_num > 1:
                 await asyncio.sleep(_NAV_DELAY)
 
-            url = self._build_job_search_url(
-                keywords,
-                location=location,
-                job_type=job_type,
-                employment_type=employment_type,
-                sort_by=sort_by,
-                page=page_num,
-            )
+            url = self._build_job_search_url(keywords, location=location)
+            if page_num > 1:
+                url += f"&page={page_num}"
 
             try:
                 extracted = await self._extract_search_page(url, "search_results")
@@ -612,7 +1003,6 @@ class HandshakeExtractor:
                     page_texts.append(extracted.text)
                     if extracted.references:
                         page_references.extend(extracted.references)
-                    logger.debug("No new job IDs on page %d, stopping", page_num)
                     break
 
                 for jid in new_ids:
@@ -637,6 +1027,7 @@ class HandshakeExtractor:
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)} if page_texts else {},
             "job_ids": all_job_ids,
+            "jobs": [],
         }
         if page_references:
             result["references"] = {"search_results": dedupe_references(page_references, cap=15)}
@@ -953,3 +1344,43 @@ class HandshakeExtractor:
             {"selectors": selectors},
         )
         return result
+
+    async def get_job_search_filters(self) -> dict[str, Any]:
+        """Return all available job search filter options for the current user.
+
+        Navigates to /job-search to establish session context, then queries
+        the GraphQL API for all filter options.
+
+        Returns:
+            Dict with keys: job_types, employment_types, education_levels,
+            salary_types, pay_schedules, remunerations, industries,
+            job_role_groups.
+            Returns empty dict on failure.
+        """
+        url = f"{BASE_URL}/job-search"
+        await self._goto_with_auth_checks(url)
+
+        data = await self._fetch_graphql(FILTERS_QUERY, _FILTERS_VARIABLES)
+        if data is None:
+            logger.debug("GraphQL failed for get_job_search_filters")
+            return {}
+
+        def _extract(items: list[dict] | None, include_slug: bool = False) -> list[dict]:
+            result = []
+            for item in items or []:
+                entry: dict[str, Any] = {"id": str(item["id"]), "name": item["name"]}
+                if include_slug and "behaviorIdentifier" in item:
+                    entry["slug"] = item["behaviorIdentifier"]
+                result.append(entry)
+            return result
+
+        return {
+            "job_types": _extract(data.get("jobTypes"), include_slug=True),
+            "employment_types": _extract(data.get("employmentTypes"), include_slug=True),
+            "education_levels": _extract(data.get("educationLevels")),
+            "salary_types": _extract(data.get("salaryTypes")),
+            "pay_schedules": _extract(data.get("paySchedules")),
+            "remunerations": _extract(data.get("remunerations")),
+            "industries": _extract(data.get("industries")),
+            "job_role_groups": _extract(data.get("jobRoleGroups")),
+        }
