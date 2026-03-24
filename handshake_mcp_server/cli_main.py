@@ -13,7 +13,7 @@ import logging
 import sys
 from typing import Literal
 
-import inquirer
+import questionary
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from handshake_mcp_server import __version__
@@ -45,24 +45,20 @@ def _configure_logging(log_level: str) -> None:
 
 
 def choose_transport_interactive() -> Literal["stdio", "streamable-http"]:
-    """Prompt user for transport mode using inquirer."""
-    questions = [
-        inquirer.List(
-            "transport",
-            message="Choose MCP transport mode",
-            choices=[
-                ("stdio (Default CLI mode)", "stdio"),
-                ("streamable-http (HTTP server mode)", "streamable-http"),
-            ],
-            default="stdio",
-        )
-    ]
-    answers = inquirer.prompt(questions)
+    """Prompt user for transport mode using questionary."""
+    answer = questionary.select(
+        "Choose MCP transport mode",
+        choices=[
+            questionary.Choice("stdio (Default CLI mode)", value="stdio"),
+            questionary.Choice("streamable-http (HTTP server mode)", value="streamable-http"),
+        ],
+        default="stdio",
+    ).ask()
 
-    if not answers:
+    if answer is None:
         raise KeyboardInterrupt("Transport selection cancelled by user")
 
-    return answers["transport"]
+    return answer
 
 
 def _login_and_exit(headless: bool, log_level: str = "INFO") -> None:
