@@ -1,14 +1,13 @@
 # Design: GraphQL-First Job Details & Search
 
-**Date:** 2026-03-24
-**Branch:** notch-technosaurus
-**Scope:** `get_job_details`, `search_jobs` tools + new `get_job_search_filters` tool
+**Date:** 2026-03-24 **Branch:** notch-technosaurus **Scope:** `get_job_details`, `search_jobs` tools + new `get_job_search_filters` tool
 
 ---
 
 ## Background
 
 The current `get_job_details` tool scrapes the Handshake job page as innerText. This produces:
+
 - A truncated job description (Handshake collapses long descriptions behind a "More" button)
 - Minimal `metadata` (`title`, `company_id`, `job_id` only — `company` and `apply_url` are often missing)
 - Noise from the "Similar Jobs" section appended to the section text
@@ -17,6 +16,7 @@ The current `get_job_details` tool scrapes the Handshake job page as innerText. 
 The current `search_jobs` tool always returns `job_ids: []` because Handshake's React SPA does not render job card links as standard `<a href="/jobs/{id}">` anchors.
 
 **Root cause investigation** confirmed that Handshake uses an internal GraphQL API at `/hs/graphql`. Live testing showed:
+
 - `GetBasicJobDetails(id: ID!)` → returns the full job record (title, description in HTML, salary, location, work type, dates, work auth, etc.)
 - `JobSearchQuery(first, after, input)` → returns paginated search results with job IDs and basic job data
 - `JobSearchInitialFilterValuesQuery` → returns all filter options (job types, employment types, education levels, school-specific curations, industries, majors, etc.)
@@ -85,11 +85,11 @@ scrape_job(job_id)
 ### New `metadata` shape
 
 | Field | Source | Notes |
-|---|---|---|
-| `id` | `job.id` | |
-| `title` | `job.title` | |
+| --- | --- | --- |
+| `id` | `job.id` |  |
+| `title` | `job.title` |  |
 | `company` | `job.employer.name` | Previously often missing |
-| `company_id` | `job.employer.id` | |
+| `company_id` | `job.employer.id` |  |
 | `industry` | `job.employer.industry.name` | New |
 | `salary` | formatted string | See salary formatting table below |
 | `salary_type` | `job.salaryType.behaviorIdentifier` | `"PAID"` / `"UNPAID"` |
@@ -110,6 +110,7 @@ scrape_job(job_id)
 ### Salary formatting
 
 `salaryRange` values are in cents (e.g., `3000` → `$30`). `paySchedule.behaviorIdentifier` → short suffix:
+
 - `HOURLY_WAGE` → `"/hr"`
 - `ANNUAL_SALARY` → `"/yr"`
 - `MONTHLY_STIPEND` → `"/mo"`
@@ -117,7 +118,7 @@ scrape_job(job_id)
 Checks run in this order:
 
 | Condition | Formatted `salary` |
-|---|---|
+| --- | --- |
 | `salaryType.behaviorIdentifier == "UNPAID"` | `"Unpaid"` |
 | `salaryRange` is null | omit field entirely |
 | `min` and `max` are both null or 0 | omit field entirely |
@@ -214,7 +215,7 @@ get_job_search_filters()
 
 `collections` is school-specific — a CU Boulder user sees CU Boulder's curations; another school's user sees theirs. `job_types`, `employment_types`, `education_levels`, `salary_types`, `pay_schedules`, `remunerations`, `industries`, `job_role_groups` are global (same for all users) but returned dynamically so they stay current if Handshake adds new options.
 
-**No `majors` field** — the API returns only the user's declared majors (20 items for the test user), which is an incomplete picture. Omitting it avoids confusion.
+**No** `majors` **field** — the API returns only the user's declared majors (20 items for the test user), which is an incomplete picture. Omitting it avoids confusion.
 
 ### GraphQL query
 
@@ -229,6 +230,7 @@ Uses `JobSearchInitialFilterValuesQuery` with all `include*` flags set to `true`
 Old: `search_jobs(keywords, location, job_type, employment_type, sort_by, max_pages)`
 
 New:
+
 ```python
 search_jobs(
     keywords: str,
@@ -297,7 +299,7 @@ Only non-null filter lists are included (None values are omitted from the GraphQ
 ### Confirmed filter keys (live-tested)
 
 | Filter | GraphQL key | Tested |
-|---|---|---|
+| --- | --- | --- |
 | Job type | `jobTypeIds` | ✓ confirmed working |
 | Employment type | `employmentTypeIds` | ✓ confirmed working |
 | School collection | `curationIds` | ✓ confirmed working |
@@ -313,6 +315,7 @@ Only non-null filter lists are included (None values are omitted from the GraphQ
 ### Cursor pagination
 
 The app always sends `after` even on page 1 (confirmed by live interception). We follow the same pattern:
+
 - Page 1: `after: btoa("0")` = `"MA=="`
 - Page N: `after: btoa(str((N-1) * 25))`
 
@@ -370,7 +373,7 @@ When using GraphQL, each job is one line: `{company} — {title} · {salary} · 
 ## Files changed
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `scraping/extractor.py` | Add `_fetch_graphql`, `_html_to_text`, `JOB_DETAILS_QUERY`, `JOB_SEARCH_QUERY`, `FILTERS_QUERY` constants; modify `scrape_job`, `search_jobs`; add `get_job_search_filters` |
 | `tools/job.py` | Add `get_job_search_filters` tool registration; update `search_jobs` signature (remove old params, add ID lists) |
 | `CLAUDE.md` | Update tool return format docs; update URL routes section |
