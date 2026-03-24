@@ -148,9 +148,18 @@ async def test_docker_path_fails_fast_when_port_in_use():
 
 @pytest.mark.asyncio
 async def test_local_path_skips_login_when_profile_exists_and_user_declines():
+    import sys
+    from pathlib import Path
+
     from handshake_mcp_server.setup_wizard import _run_local_path
 
+    mock_pw = MagicMock()
+    mock_pw.__aenter__ = AsyncMock(return_value=mock_pw)
+    mock_pw.__aexit__ = AsyncMock(return_value=None)
+    mock_pw.chromium.executable_path = sys.executable  # always exists
+
     with (
+        patch("patchright.async_api.async_playwright", return_value=mock_pw),
         patch("handshake_mcp_server.setup_wizard.profile_exists", return_value=True),
         patch("questionary.confirm") as mock_confirm,
         patch("handshake_mcp_server.setup_wizard._print_mcp_command") as mock_print,
