@@ -98,7 +98,8 @@ Always verify URLs against live Handshake before adding new sections. The SPA ca
 All scraping tools return: `{url, sections: {name: raw_text}}`.
 
 Optional additional keys:
-- `metadata: {title, company, company_id, job_id, apply_url}` (get_job_details only) — structured fields extracted from semantic HTML
+- `metadata: {id, title, company, company_id, industry, salary, salary_type, work_type, locations, job_type, employment_type, start_date, end_date, deadline, posted_at, work_auth_required, accepts_opt, accepts_cpt, will_sponsor, apply_url}` (get_job_details only, GraphQL path) — all fields optional, present when available
+- `jobs: [{id, title, company, job_type, employment_type, salary, locations}]` (search_jobs only) — card-level metadata; use job_ids with get_job_details for full details
 - `references: {section_name: [{kind, url, text?, context?}]}` — Handshake URLs are relative paths
 - `section_errors: {section_name: {error_type, error_message}}`
 - `unknown_sections: [name, ...]`
