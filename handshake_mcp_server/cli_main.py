@@ -260,6 +260,13 @@ def _docker_clean_and_exit() -> None:
     subprocess.run(["docker", "rmi", "-f", "handshake-mcp-server"], check=False)
 
     print("Removing Docker volume (handshake-profile)...")
+    # Stop and remove any containers still holding the volume before deleting it.
+    containers = subprocess.run(
+        ["docker", "ps", "-a", "-q", "--filter", "volume=handshake-profile"],
+        capture_output=True, text=True, check=False,
+    ).stdout.strip()
+    if containers:
+        subprocess.run(["docker", "rm", "-f"] + containers.splitlines(), check=False)
     subprocess.run(["docker", "volume", "rm", "-f", "handshake-profile"], check=False)
 
     print("Done.")
