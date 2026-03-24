@@ -184,9 +184,7 @@ async def _run_local_path() -> None:
                 f"  [green]✓[/green]  Logged in — profile saved to {DEFAULT_PROFILE_DIR}\n"
             )
         except KeyboardInterrupt:
-            console.print(
-                "\n  [yellow]![/yellow]  Login cancelled — run setup again when ready.\n"
-            )
+            console.print("\n  [yellow]![/yellow]  Login cancelled — run setup again when ready.\n")
             raise SystemExit(0)
         except Exception as e:
             console.print(f"\n  [red]✗[/red]  Login failed: {e}\n")
