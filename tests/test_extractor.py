@@ -335,3 +335,87 @@ class TestScrapeJobGraphQL:
         ):
             with pytest.raises(HandshakeScraperException, match="not found"):
                 await extractor.scrape_job("999")
+
+
+def _make_search_edge(job_id, title="Engineer", company="Corp"):
+    return {
+        "node": {
+            "job": {
+                "id": job_id,
+                "title": title,
+                "employer": {"name": company},
+                "jobType": {"behaviorIdentifier": "INTERNSHIP"},
+                "employmentType": {"behaviorIdentifier": "FULL_TIME"},
+                "salaryType": {"behaviorIdentifier": "PAID"},
+                "salaryRange": {
+                    "min": 4000,
+                    "max": 4000,
+                    "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"},
+                },
+                "locations": [{"city": "Boulder", "state": "CO"}],
+            }
+        }
+    }
+
+
+class TestSearchJobsGraphQL:
+    async def test_returns_job_ids_and_jobs_list(self, extractor):
+        edges = [_make_search_edge(str(i), f"Job {i}") for i in range(25)]
+        gql_response = {"jobSearch": {"edges": edges}}
+
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(side_effect=[gql_response, None])),
+        ):
+            result = await extractor.search_jobs("engineer", max_pages=2)
+
+        assert len(result["job_ids"]) == 25
+        assert result["job_ids"][0] == "0"
+        assert len(result["jobs"]) == 25
+        assert result["jobs"][0]["title"] == "Job 0"
+        assert result["jobs"][0]["company"] == "Corp"
+
+    async def test_stops_pagination_when_fewer_than_25_edges(self, extractor):
+        page1 = {"jobSearch": {"edges": [_make_search_edge(str(i)) for i in range(25)]}}
+        page2 = {"jobSearch": {"edges": [_make_search_edge(str(i + 25)) for i in range(10)]}}
+
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(side_effect=[page1, page2])),
+        ):
+            result = await extractor.search_jobs("engineer", max_pages=5)
+
+        assert len(result["job_ids"]) == 35
+
+    async def test_fallback_on_page1_graphql_failure(self, extractor):
+        fallback_extracted = ExtractedSection(text="Fallback text", references=[])
+
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=None)),
+            patch.object(extractor, "_extract_search_page", new=AsyncMock(return_value=fallback_extracted)),
+            patch.object(extractor, "_extract_job_ids", new=AsyncMock(return_value=["111", "222"])),
+        ):
+            result = await extractor.search_jobs("engineer", max_pages=1)
+
+        assert result["sections"]["search_results"] == "Fallback text"
+        assert result["job_ids"] == ["111", "222"]
+        assert result["jobs"] == []
+
+    async def test_id_filter_params_passed_to_graphql(self, extractor):
+        gql_response = {"jobSearch": {"edges": []}}
+
+        with (
+            patch.object(extractor, "_goto_with_auth_checks", new=AsyncMock()),
+            patch.object(extractor, "_fetch_graphql", new=AsyncMock(return_value=gql_response)) as mock_gql,
+        ):
+            await extractor.search_jobs(
+                "engineer",
+                job_type_ids=["3"],
+                collection_ids=["20902"],
+                max_pages=1,
+            )
+
+        call_variables = mock_gql.call_args[0][1]
+        assert call_variables["input"]["filter"]["jobTypeIds"] == ["3"]
+        assert call_variables["input"]["filter"]["curationIds"] == ["20902"]

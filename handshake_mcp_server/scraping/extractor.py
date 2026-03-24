@@ -47,24 +47,6 @@ _RATE_LIMITED_MSG = (
 # Handshake shows 25 results per page
 _PAGE_SIZE = 25
 
-# Sort options for job search
-_SORT_BY_MAP = {"date": "posted_date_desc", "relevance": "relevance"}
-
-# Job type filter values (Handshake uses string slugs)
-_JOB_TYPE_MAP = {
-    "full_time": "full_time",
-    "part_time": "part_time",
-    "internship": "internship",
-    "on_campus": "on_campus",
-}
-
-# Work location filter values
-_WORK_LOCATION_MAP = {
-    "on_site": "on_site",
-    "remote": "remote",
-    "hybrid": "hybrid",
-}
-
 # Noise patterns that indicate Handshake footer/sidebar chrome.
 # Everything from the earliest match onwards is stripped.
 _NOISE_MARKERS: list[re.Pattern[str]] = [
@@ -877,61 +859,133 @@ class HandshakeExtractor:
         )
 
     @staticmethod
-    def _build_job_search_url(
-        keywords: str,
-        location: str | None = None,
-        job_type: str | None = None,
-        employment_type: str | None = None,
-        sort_by: str | None = None,
-        page: int = 1,
-        per_page: int = _PAGE_SIZE,
-    ) -> str:
-        """Build a Handshake job search URL with optional filters."""
-        params = f"query={quote_plus(keywords)}&page={page}&per_page={per_page}"
+    def _build_job_search_url(keywords: str, location: str | None = None) -> str:
+        """Build a Handshake job search URL for session navigation."""
+        params = f"query={quote_plus(keywords)}"
         if location:
             params += f"&location={quote_plus(location)}"
-        if job_type:
-            mapped = _JOB_TYPE_MAP.get(job_type.strip(), job_type)
-            params += f"&job_type={quote_plus(mapped)}"
-        if employment_type:
-            mapped = _WORK_LOCATION_MAP.get(employment_type.strip(), employment_type)
-            params += f"&employment_type={quote_plus(mapped)}"
-        if sort_by:
-            mapped = _SORT_BY_MAP.get(sort_by.strip(), sort_by)
-            params += f"&sort_direction={quote_plus(mapped)}"
         return f"{BASE_URL}/job-search?{params}"
 
     async def search_jobs(
         self,
         keywords: str,
+        job_type_ids: list[str] | None = None,
+        employment_type_ids: list[str] | None = None,
+        education_level_ids: list[str] | None = None,
+        collection_ids: list[str] | None = None,
+        industry_ids: list[str] | None = None,
+        job_role_group_ids: list[str] | None = None,
+        remuneration_ids: list[str] | None = None,
+        salary_type_ids: list[str] | None = None,
         location: str | None = None,
-        job_type: str | None = None,
-        employment_type: str | None = None,
         sort_by: str | None = None,
         max_pages: int = 3,
     ) -> dict[str, Any]:
-        """Search for jobs with pagination and job ID extraction.
+        """Search for jobs with pagination, job ID extraction, and structured results.
+
+        Use get_job_search_filters first to discover valid IDs for all *_ids params.
+        Work location (remote/hybrid/on_site) filtering is not supported — the
+        GraphQL filter key could not be confirmed.
 
         Args:
-            keywords: Search keywords
-            location: Optional location filter
-            job_type: Filter by job type (full_time, part_time, internship, on_campus)
-            employment_type: Filter by work location (on_site, remote, hybrid)
-            sort_by: Sort results (date, relevance)
-            max_pages: Maximum pages to load (1-10, default 3)
+            keywords: Search keywords (e.g., "software engineer")
+            job_type_ids: Filter by job type ID(s) (e.g., ["3"] for Internship)
+            employment_type_ids: Filter by employment type ID(s) (e.g., ["1"] for Full-Time)
+            education_level_ids: Filter by education level ID(s)
+            collection_ids: School-specific curation ID(s) (e.g., on-campus employment)
+            industry_ids: Filter by industry ID(s)
+            job_role_group_ids: Filter by job role group ID(s)
+            remuneration_ids: Filter by benefits/remuneration ID(s)
+            salary_type_ids: Filter by salary type ID(s) (e.g., ["1"] for Paid)
+            location: Best-effort location hint appended to the URL query string
+            sort_by: "relevance" (default) or "date"
+            max_pages: Maximum pages to fetch (1-10, default 3, 25 results per page)
 
         Returns:
-            {url, sections: {search_results: text}, job_ids: [str]}
+            {url, sections: {search_results: text}, job_ids: [str], jobs: [dict]}
         """
-        base_url = self._build_job_search_url(
-            keywords,
-            location=location,
-            job_type=job_type,
-            employment_type=employment_type,
-            sort_by=sort_by,
-            page=1,
+        base_url = self._build_job_search_url(keywords, location=location)
+
+        # Navigate to establish session context for GraphQL
+        await self._goto_with_auth_checks(base_url)
+
+        # Build GraphQL filter — omit None lists
+        gql_filter: dict[str, Any] = {"query": keywords}
+        if job_type_ids:
+            gql_filter["jobTypeIds"] = job_type_ids
+        if employment_type_ids:
+            gql_filter["employmentTypeIds"] = employment_type_ids
+        if education_level_ids:
+            gql_filter["educationLevelIds"] = education_level_ids
+        if collection_ids:
+            gql_filter["curationIds"] = collection_ids
+        if industry_ids:
+            gql_filter["industryIds"] = industry_ids
+        if job_role_group_ids:
+            gql_filter["jobRoleGroupIds"] = job_role_group_ids
+        if remuneration_ids:
+            gql_filter["remunerationIds"] = remuneration_ids
+        if salary_type_ids:
+            gql_filter["salaryTypeIds"] = salary_type_ids
+
+        gql_sort = _GQL_SORT_MAP.get(sort_by or "", _GQL_SORT_DEFAULT)
+
+        all_job_ids: list[str] = []
+        all_jobs: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for page_num in range(1, max_pages + 1):
+            variables = {
+                "first": _PAGE_SIZE,
+                "after": _search_cursor(page_num),
+                "input": {"filter": gql_filter, "sort": gql_sort},
+            }
+            data = await self._fetch_graphql(JOB_SEARCH_QUERY, variables)
+
+            if data is None:
+                if page_num == 1:
+                    # GraphQL failed on page 1 — fall back to scraping
+                    logger.debug("GraphQL failed for search, falling back to scraping")
+                    return await self._search_jobs_fallback(
+                        base_url, keywords, location, max_pages
+                    )
+                # Pages 2+: stop pagination silently, return what we have
+                break
+
+            edges = (data.get("jobSearch") or {}).get("edges") or []
+            for edge in edges:
+                job = (edge.get("node") or {}).get("job") or {}
+                job_id = job.get("id")
+                if job_id and job_id not in seen_ids:
+                    seen_ids.add(job_id)
+                    all_job_ids.append(job_id)
+                    all_jobs.append(_build_search_job_entry(job))
+
+            if len(edges) < _PAGE_SIZE:
+                break  # Last page
+
+        search_text = "\n".join(
+            f"{j.get('company', '')} — {j.get('title', '')} · "
+            f"{j.get('salary', '')} · {j.get('job_type', '')} · "
+            f"{', '.join(j.get('locations', []))}"
+            for j in all_jobs
         )
 
+        return {
+            "url": base_url,
+            "sections": {"search_results": search_text} if search_text else {},
+            "job_ids": all_job_ids,
+            "jobs": all_jobs,
+        }
+
+    async def _search_jobs_fallback(
+        self,
+        base_url: str,
+        keywords: str,
+        location: str | None,
+        max_pages: int,
+    ) -> dict[str, Any]:
+        """Inner fallback: scrape job search pages as innerText."""
         all_job_ids: list[str] = []
         seen_ids: set[str] = set()
         page_texts: list[str] = []
@@ -942,14 +996,9 @@ class HandshakeExtractor:
             if page_num > 1:
                 await asyncio.sleep(_NAV_DELAY)
 
-            url = self._build_job_search_url(
-                keywords,
-                location=location,
-                job_type=job_type,
-                employment_type=employment_type,
-                sort_by=sort_by,
-                page=page_num,
-            )
+            url = self._build_job_search_url(keywords, location=location)
+            if page_num > 1:
+                url += f"&page={page_num}"
 
             try:
                 extracted = await self._extract_search_page(url, "search_results")
@@ -966,7 +1015,6 @@ class HandshakeExtractor:
                     page_texts.append(extracted.text)
                     if extracted.references:
                         page_references.extend(extracted.references)
-                    logger.debug("No new job IDs on page %d, stopping", page_num)
                     break
 
                 for jid in new_ids:
@@ -991,6 +1039,7 @@ class HandshakeExtractor:
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)} if page_texts else {},
             "job_ids": all_job_ids,
+            "jobs": [],
         }
         if page_references:
             result["references"] = {"search_results": dedupe_references(page_references, cap=15)}
