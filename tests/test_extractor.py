@@ -213,6 +213,21 @@ class TestBuildJobMetadata:
         meta = _build_job_metadata(self._job(salaryRange=None))
         assert "salary" not in meta
 
+    def test_work_type_on_site(self):
+        meta = _build_job_metadata(self._job(hybrid=False, remote=False, onSite=True))
+        assert meta["work_type"] == "on_site"
+
+    def test_no_work_type_when_all_flags_false(self):
+        meta = _build_job_metadata(self._job(hybrid=False, remote=False, onSite=False))
+        assert "work_type" not in meta
+
+    def test_salary_type_omitted_when_salary_omitted(self):
+        # When salary range is zero, both salary and salary_type should be absent
+        job = self._job(salaryRange={"min": 0, "max": 0, "paySchedule": {"behaviorIdentifier": "HOURLY_WAGE"}})
+        meta = _build_job_metadata(job)
+        assert "salary" not in meta
+        assert "salary_type" not in meta
+
 
 class TestBuildSearchJobEntry:
     def test_builds_entry(self):

@@ -308,8 +308,8 @@ def _build_job_metadata(job: dict) -> dict[str, Any]:
     salary_str = _format_salary(job.get("salaryType"), salary_range, pay_schedule)
     if salary_str is not None:
         meta["salary"] = salary_str
-    if st := (job.get("salaryType") or {}).get("behaviorIdentifier"):
-        meta["salary_type"] = st
+        if st := (job.get("salaryType") or {}).get("behaviorIdentifier"):
+            meta["salary_type"] = st
 
     locations = [
         f"{loc['city']}, {loc['state']}"
