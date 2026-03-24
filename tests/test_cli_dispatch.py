@@ -1,4 +1,5 @@
 """Tests for CLI subcommand dispatch and transport selection."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -38,10 +39,15 @@ def test_docker_subcommand_calls_execvp():
     mock_exec.assert_called_once_with(
         "docker",
         [
-            "docker", "run", "--rm", "-i",
-            "-v", "handshake-profile:/home/pwuser/.handshake-mcp",
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "-v",
+            "handshake-profile:/home/pwuser/.handshake-mcp",
             "handshake-mcp-server",
-            "--transport", "stdio",
+            "--transport",
+            "stdio",
             "--virtual-display",
         ],
     )

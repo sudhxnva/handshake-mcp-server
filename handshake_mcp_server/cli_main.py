@@ -261,10 +261,15 @@ def _docker_and_exit() -> None:
     os.execvp(
         "docker",
         [
-            "docker", "run", "--rm", "-i",
-            "-v", "handshake-profile:/home/pwuser/.handshake-mcp",
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "-v",
+            "handshake-profile:/home/pwuser/.handshake-mcp",
             "handshake-mcp-server",
-            "--transport", "stdio",
+            "--transport",
+            "stdio",
             "--virtual-display",
         ],
     )
