@@ -104,3 +104,39 @@ def test_copy_to_clipboard_returns_false_on_failure():
         result = _copy_to_clipboard("hello")
 
     assert result is False
+
+
+# --- _run_docker_path ---
+
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_docker_path_fails_fast_when_docker_not_installed():
+    from handshake_mcp_server.setup_wizard import _run_docker_path
+
+    with (
+        patch("handshake_mcp_server.setup_wizard._check_docker", return_value=(False, "not installed")),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        await _run_docker_path()
+
+    assert exc_info.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_docker_path_fails_fast_when_port_in_use():
+    from handshake_mcp_server.setup_wizard import _run_docker_path
+
+    with (
+        patch("handshake_mcp_server.setup_wizard._check_docker", return_value=(True, "")),
+        patch("handshake_mcp_server.setup_wizard._is_port_free", return_value=False),
+        patch("handshake_mcp_server.setup_wizard.subprocess.run") as mock_run,
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        # Make build "succeed" so we reach the port check
+        mock_run.return_value = MagicMock(returncode=0)
+        await _run_docker_path()
+
+    assert exc_info.value.code == 1

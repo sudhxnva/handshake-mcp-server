@@ -87,6 +87,63 @@ def _print_mcp_command(mode: Literal["docker", "local"]) -> None:
     console.print()
 
 
+async def _run_docker_path() -> None:
+    """Docker setup: build image, VNC login, print MCP command."""
+    # 1. Check Docker
+    ok, msg = _check_docker()
+    if not ok:
+        console.print(f"\n  [red]✗[/red]  {msg}\n")
+        raise SystemExit(1)
+
+    console.print("  [green]✓[/green]  Docker is running\n")
+
+    # 2. Build image — stream output; capture only to detect failure
+    console.print("  Building Docker image...\n")
+    result = subprocess.run(
+        ["docker", "compose", "build"],
+        timeout=300,
+    )
+    if result.returncode != 0:
+        console.print("\n  [red]✗[/red]  Image build failed. See output above.\n")
+        raise SystemExit(1)
+
+    console.print("\n  [green]✓[/green]  Image built\n")
+
+    # 3. Check port 6080 before attempting VNC login
+    if not _is_port_free(6080):
+        console.print(
+            "  [red]✗[/red]  Port 6080 is in use. "
+            "Stop the conflicting service and run setup again.\n"
+        )
+        raise SystemExit(1)
+
+    # 4. VNC login
+    console.print("  Open this URL in your browser to log in:\n")
+    console.print("  [bold cyan]http://localhost:6080/vnc.html[/bold cyan]\n")
+    console.print("  Starting VNC login (Ctrl+C to cancel)...\n")
+
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "run",
+            "--rm",
+            "-p",
+            "6080:6080",
+            "handshake-mcp",
+            "--vnc-login",
+        ],
+    )
+    if result.returncode != 0:
+        console.print("\n  [yellow]![/yellow]  Login cancelled — run setup again when ready.\n")
+        raise SystemExit(0)
+
+    console.print("\n  [green]✓[/green]  Logged in\n")
+
+    # 5. Print MCP command
+    _print_mcp_command("docker")
+
+
 async def run_setup_wizard() -> None:
     """Placeholder — implemented in Task 7."""
     pass
