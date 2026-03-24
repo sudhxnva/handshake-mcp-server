@@ -1,8 +1,8 @@
 """Tests for scraping/link_metadata.py reference extraction."""
 
 from handshake_mcp_server.scraping.link_metadata import (
-    Reference,
     RawReference,
+    Reference,
     classify_link,
     dedupe_references,
     normalize_reference,
