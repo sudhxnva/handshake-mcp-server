@@ -9,23 +9,21 @@ BASE_URL = "https://app.joinhandshake.com"
 # Maps section name -> (url_suffix, is_overlay)
 # Each entry corresponds to exactly one page navigation.
 
-# Student profile sections: base path /users/{id}
-# NOTE: Handshake student profiles are largely single-page JS apps.
-# Verify during live testing whether /experience, /education have distinct URLs.
+# Student profile sections: base path /users/{id} (redirects to /profiles/{id})
 STUDENT_SECTIONS: dict[str, tuple[str, bool]] = {
     "main_profile": ("", False),  # /users/{id}
 }
 
-# Employer profile sections: base path /stu/employers/{id}
+# Employer profile sections: base path /e/{id}
 EMPLOYER_SECTIONS: dict[str, tuple[str, bool]] = {
-    "overview": ("", False),       # /stu/employers/{id}
-    "jobs": ("/jobs", False),      # /stu/employers/{id}/jobs
-    "reviews": ("/reviews", False), # /stu/employers/{id}/reviews
+    "overview": ("", False),  # /e/{id}
+    "jobs": ("/jobs", False),  # /e/{id}/jobs
+    "posts": ("/posts", False),  # /e/{id}/posts
 }
 
-# Job detail section: base path /stu/jobs/{id}
+# Job detail section: base path /jobs/{id}
 JOB_SECTIONS: dict[str, tuple[str, bool]] = {
-    "job_posting": ("", False),  # /stu/jobs/{id}
+    "job_posting": ("", False),  # /jobs/{id}
 }
 
 # Event detail section: base path /stu/events/{id}

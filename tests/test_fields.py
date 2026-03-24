@@ -33,10 +33,10 @@ def test_parse_employer_sections_empty():
 
 
 def test_parse_employer_sections_valid():
-    sections, unknown = parse_employer_sections("jobs,reviews")
+    sections, unknown = parse_employer_sections("jobs,posts")
     assert "overview" in sections  # always included
     assert "jobs" in sections
-    assert "reviews" in sections
+    assert "posts" in sections
     assert unknown == []
 
 

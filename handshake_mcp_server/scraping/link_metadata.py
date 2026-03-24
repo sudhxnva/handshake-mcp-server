@@ -60,7 +60,7 @@ _SECTION_CONTEXTS: dict[str, str] = {
     "main_profile": "profile",
     "overview": "overview",
     "jobs": "jobs",
-    "reviews": "reviews",
+    "posts": "posts",
     "job_posting": "job",
     "event_details": "event",
     "search_results": "search",
@@ -71,7 +71,7 @@ _REFERENCE_CAPS: dict[str, int] = {
     "main_profile": 12,
     "overview": 12,
     "jobs": 8,
-    "reviews": 8,
+    "posts": 8,
     "job_posting": 8,
     "event_details": 8,
     "search_results": 15,
@@ -80,9 +80,9 @@ _REFERENCE_CAPS: dict[str, int] = {
 _WHITESPACE_RE = re.compile(r"\s+")
 
 # Handshake URL patterns
-_STUDENT_PATH_RE = re.compile(r"^/users/(\d+)")
-_EMPLOYER_PATH_RE = re.compile(r"^/stu/employers/(\d+)")
-_JOB_PATH_RE = re.compile(r"^/stu/jobs/(\d+)")
+_STUDENT_PATH_RE = re.compile(r"^/(?:users|profiles)/(\d+)")
+_EMPLOYER_PATH_RE = re.compile(r"^/e/(\d+)")
+_JOB_PATH_RE = re.compile(r"^/jobs/(\d+)")
 _EVENT_PATH_RE = re.compile(r"^/stu/events/(\d+)")
 
 

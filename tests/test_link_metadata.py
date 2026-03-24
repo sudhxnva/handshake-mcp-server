@@ -8,15 +8,15 @@ from handshake_mcp_server.scraping.link_metadata import (
 
 
 def test_classify_job_link():
-    result = classify_link("https://app.joinhandshake.com/stu/jobs/9876543")
+    result = classify_link("https://app.joinhandshake.com/jobs/9876543")
     assert result is not None
     kind, url = result
     assert kind == "job"
-    assert "/stu/jobs/9876543" in url
+    assert "/jobs/9876543" in url
 
 
 def test_classify_employer_link():
-    result = classify_link("https://app.joinhandshake.com/stu/employers/123456")
+    result = classify_link("https://app.joinhandshake.com/e/123456")
     assert result is not None
     kind, url = result
     assert kind == "employer"
@@ -50,7 +50,7 @@ def test_classify_unrelated_link():
 
 
 def test_classify_relative_path_job():
-    result = classify_link("/stu/jobs/9876543")
+    result = classify_link("/jobs/9876543")
     assert result is not None
     kind, url = result
     assert kind == "job"
@@ -89,9 +89,6 @@ def test_dedupe_references_removes_duplicates():
 
 
 def test_dedupe_references_respects_cap():
-    refs = [
-        {"kind": "job", "url": f"/stu/jobs/{i}", "text": f"Job {i}"}
-        for i in range(20)
-    ]
+    refs = [{"kind": "job", "url": f"/stu/jobs/{i}", "text": f"Job {i}"} for i in range(20)]
     result = dedupe_references(refs, cap=5)
     assert len(result) == 5
