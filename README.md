@@ -11,7 +11,7 @@ Through this Handshake MCP server, AI assistants like Claude can connect to your
 
 ## Installation Methods
 
-[![uvx](https://img.shields.io/badge/uvx-Quick_Install-de5fe9?style=for-the-badge)](# -uvx-setup-recommended)
+[![uvx](https://img.shields.io/badge/uvx-Quick_Install-de5fe9?style=for-the-badge)](#-uvx-setup-recommended)
 [![Docker](https://img.shields.io/badge/Docker-Headless_Server-008fe2?style=for-the-badge&logo=docker&logoColor=white)](#-docker-setup)
 [![Development](https://img.shields.io/badge/Development-Local-ffdc53?style=for-the-badge&logo=python&logoColor=black)](#-local-setup-develop--contribute)
 
