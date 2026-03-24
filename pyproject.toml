@@ -1,0 +1,46 @@
+[project]
+name = "handshake-scraper-mcp"
+version = "0.1.0"
+description = "MCP server for scraping Handshake (joinhandshake.com) — student profiles, employers, jobs, and events"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=3.0.0",
+    "inquirer>=3.4.0",
+    "patchright>=1.40.0",
+    "python-dotenv>=1.1.1",
+]
+
+[project.scripts]
+handshake-mcp-server = "handshake_mcp_server.cli_main:main"
+handshake-scraper-mcp = "handshake_mcp_server.cli_main:main"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
+    "pytest-cov>=6.1.0",
+    "ruff>=0.11.2",
+    "ty>=0.0.1a14",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["handshake_mcp_server"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B904", "SIM117"]
