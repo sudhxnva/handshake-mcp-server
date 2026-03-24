@@ -6,7 +6,11 @@ import subprocess
 import sys
 from typing import Literal
 
+import questionary
 from rich.console import Console
+from rich.panel import Panel
+
+from handshake_mcp_server.browser_manager import profile_exists
 
 console = Console()
 
@@ -142,6 +146,56 @@ async def _run_docker_path() -> None:
 
     # 5. Print MCP command
     _print_mcp_command("docker")
+
+
+async def _run_local_path() -> None:
+    """Local setup: browser login, print MCP command."""
+    # Deferred import — keeps setup_wizard importable without triggering patchright
+    from handshake_mcp_server.browser_manager import (
+        DEFAULT_PROFILE_DIR,
+        close_browser,
+        get_or_create_browser,
+        set_headless,
+    )
+    from handshake_mcp_server.core.auth import wait_for_manual_login
+    from handshake_mcp_server.scraping.fields import BASE_URL
+
+    skip_login = False
+
+    if profile_exists():
+        console.print("  [green]✓[/green]  Existing profile found\n")
+        relogin = questionary.confirm(
+            "Already logged in — re-run login anyway?", default=False
+        ).ask()
+        if not relogin:
+            skip_login = True
+
+    if not skip_login:
+        console.print("  Opening browser for Handshake login...\n")
+        set_headless(False)
+        browser = None
+        try:
+            browser = await get_or_create_browser()
+            page = browser.page
+            await page.goto(f"{BASE_URL}/login", wait_until="domcontentloaded", timeout=20000)
+            console.print("  Waiting for login... [dim](Ctrl+C to cancel)[/dim]\n")
+            await wait_for_manual_login(page)
+            console.print(
+                f"  [green]✓[/green]  Logged in — profile saved to {DEFAULT_PROFILE_DIR}\n"
+            )
+        except KeyboardInterrupt:
+            console.print(
+                "\n  [yellow]![/yellow]  Login cancelled — run setup again when ready.\n"
+            )
+            raise SystemExit(0)
+        except Exception as e:
+            console.print(f"\n  [red]✗[/red]  Login failed: {e}\n")
+            raise SystemExit(1)
+        finally:
+            if browser is not None:
+                await close_browser()
+
+    _print_mcp_command("local")
 
 
 async def run_setup_wizard() -> None:

@@ -140,3 +140,21 @@ async def test_docker_path_fails_fast_when_port_in_use():
         await _run_docker_path()
 
     assert exc_info.value.code == 1
+
+
+# --- _run_local_path ---
+
+
+@pytest.mark.asyncio
+async def test_local_path_skips_login_when_profile_exists_and_user_declines():
+    from handshake_mcp_server.setup_wizard import _run_local_path
+
+    with (
+        patch("handshake_mcp_server.setup_wizard.profile_exists", return_value=True),
+        patch("questionary.confirm") as mock_confirm,
+        patch("handshake_mcp_server.setup_wizard._print_mcp_command") as mock_print,
+    ):
+        mock_confirm.return_value.ask.return_value = False  # user declines re-login
+        await _run_local_path()
+
+    mock_print.assert_called_once_with("local")
