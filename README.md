@@ -57,7 +57,13 @@ Show me the employer profile for Google on Handshake
 
 **Prerequisites:** [Install uv](https://docs.astral.sh/uv/getting-started/installation/) and a Handshake student account.
 
-### 1. Run the setup wizard
+### 1. Install the Patchright Chromium browser (one-time)
+
+```bash
+uvx --from handshake-mcp-server patchright install chromium
+```
+
+### 2. Run the setup wizard
 
 ```bash
 uvx handshake-mcp-server setup
@@ -65,7 +71,7 @@ uvx handshake-mcp-server setup
 
 The wizard asks whether you want Docker or local mode, handles login, and prints the exact `claude mcp add-json` command to register the server with your MCP client.
 
-### 2. Register with your MCP client
+### 3. Register with your MCP client
 
 After setup, paste the command the wizard printed. For example:
 
@@ -93,7 +99,7 @@ Or add manually to your MCP client config (`claude_desktop_config.json` or equiv
 Restart your MCP client. Done.
 
 > [!NOTE]
-> The server keeps a single Chromium browser open for its entire lifetime — this avoids re-authentication overhead and makes subsequent tool calls much faster. On macOS with `--no-headless`, a browser window stays visible. This is normal.
+> The server keeps a single Chromium browser open for its entire lifetime — this avoids re-authentication overhead and makes subsequent tool calls much faster. With `--no-headless`, a browser window stays visible for the duration of the session. This is normal.
 
 ### uvx Setup Help
 
@@ -133,8 +139,8 @@ uvx handshake-mcp-server --transport streamable-http --host 127.0.0.1 --port 800
 
 **Cloudflare detection:**
 
-- Handshake uses Cloudflare bot protection. On macOS, always use `--no-headless` (the setup wizard does this automatically)
-- On Linux, use `--virtual-display` to avoid the headless fingerprint
+- Handshake uses Cloudflare bot protection. On any desktop with a GUI, always use `--no-headless` (the setup wizard does this automatically)
+- On headless Linux servers, use `--virtual-display` to avoid the headless fingerprint
 - See [Cloudflare Bot Detection](#cloudflare-bot-detection) for details
 
 **Session issues:**
@@ -154,7 +160,7 @@ uvx handshake-mcp-server --transport streamable-http --host 127.0.0.1 --port 800
 
 ## 🐳 Docker Setup
 
-**Prerequisites:** [Docker](https://www.docker.com/get-started/) installed and running.
+**Prerequisites:** [Docker](https://www.docker.com/get-started/) installed and running. No other dependencies needed.
 
 Docker runs the server headless inside a container using an Xvfb virtual display — no browser window on your machine. The browser profile (cookies/session) is stored in a named Docker volume (`handshake-profile`) and persists across container restarts.
 
@@ -181,14 +187,18 @@ The MCP server is now available at `http://127.0.0.1:8000/mcp` (streamable-http 
 {
   "mcpServers": {
     "handshake": {
-      "command": "uvx",
-      "args": ["handshake-mcp-server", "docker"]
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "handshake-profile:/home/pwuser/.handshake-mcp",
+        "handshake-mcp-server",
+        "--transport", "stdio",
+        "--virtual-display"
+      ]
     }
   }
 }
 ```
-
-The `docker` subcommand `exec`s into `docker run --rm -i` using stdio transport, which is the standard way for MCP clients to talk to containerized servers.
 
 ### Docker Setup Help
 
@@ -196,10 +206,10 @@ The `docker` subcommand `exec`s into `docker run --rm -i` using stdio transport,
 <summary><b>🔧 Useful Commands</b></summary>
 
 ```bash
-docker compose logs -f                              # tail server logs
-docker compose run --rm handshake-mcp --status      # check session validity
-docker compose down                                 # stop the server
-uvx handshake-mcp-server docker-clean               # remove image and volume (full reset)
+docker compose logs -f                                               # tail server logs
+docker compose run --rm handshake-mcp --status                       # check session validity
+docker compose down                                                  # stop the server
+docker rmi -f handshake-mcp-server && docker volume rm -f handshake-profile  # full reset
 ```
 
 </details>
@@ -217,7 +227,7 @@ uvx handshake-mcp-server docker-clean               # remove image and volume (f
 
 - Check Docker is running: `docker ps`
 - Rebuild after pulling new code: `docker compose build`
-- Full reset: `uvx handshake-mcp-server docker-clean` removes the image and named volume
+- Full reset: `docker rmi -f handshake-mcp-server && docker volume rm -f handshake-profile`
 
 </details>
 
@@ -301,8 +311,8 @@ Patchright does **not** bypass Cloudflare's headless fingerprint when `headless=
 
 | Environment | Solution |
 |---|---|
-| macOS (local) | Use `--no-headless` — opens a real browser window |
-| Linux server | Use `--virtual-display` — Chrome runs non-headless against an Xvfb virtual display |
+| Desktop with GUI (macOS, Windows, Linux) | Use `--no-headless` — opens a real browser window |
+| Headless Linux server | Use `--virtual-display` — Chrome runs non-headless against an Xvfb virtual display |
 | Docker | Default CMD already uses `--virtual-display` |
 
 Cloudflare challenge pages are detected automatically and raise a `RateLimitError` if unresolved.
